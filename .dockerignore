@@ -1,0 +1,40 @@
+# виртуальные окружения
+.venv
+venv
+
+*.pyc
+__pycache__/
+
+# кеши и артефакты Python
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# IDE и редакторы
+.idea/
+.vscode/
+*.iml
+
+# логи и временные файлы
+logs/
+*.log
+
+# тесты и артефакты
+tests/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# системные файлы
+.DS_Store
+.env
+.env.*
+
+# документация и заметки
+TODO.md
+COMMANDS.md
+
+# git-репозиторий
+.git
+.gitignore
