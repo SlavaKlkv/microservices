@@ -150,22 +150,26 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
 
-#   auth-service:
-#     build: ./services/auth
-#     container_name: auth-service
-#     environment:
-#       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-auth:5432/${AUTH_DB_NAME}
-#       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-#     depends_on:
-#       postgres-auth:
-#         condition: service_healthy
-#     ports:
-#       - "${AUTH_SERVICE_PORT}:8000"
-#     networks:
-#       - microservices_net
+  auth-service:
+    build: ./services/auth
+    container_name: auth-service
+    env_file:
+      - ./services/auth/.env.docker
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    ports:
+      - "${AUTH_SERVICE_PORT}:8000"
+    command: >
+      sh -c "
+      uv run alembic upgrade head &&
+      uv run uvicorn main:app --host 0.0.0.0 --port 8000
+      "
+    networks:
+      - microservices_net
 #
 #   orders-service:
-#     build: ./services/orders
+#     build: ./service/orders
 #     container_name: orders-service
 #     environment:
 #       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-orders:5432/${ORDERS_DB_NAME}
@@ -181,7 +185,7 @@ services:
 #       - microservices_net
 #
 #   orders-history-service:
-#     build: ./services/orders-history
+#     build: ./service/orders-history
 #     container_name: orders-history-service
 #     environment:
 #       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-history:5432/${HISTORY_DB_NAME}

@@ -1,5 +1,5 @@
 [project]
-name = "microservices"
+name = "microservices.auth"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -9,11 +9,19 @@ dependencies = [
     "alembic>=1.17.2",
     "asyncpg>=0.31.0",
     "fastapi>=0.124.4",
+    "passlib[bcrypt]>=1.7.4",
     "prometheus-client>=0.23.1",
-    "pydantic>=2.12.5",
-    "ruff>=0.14.9",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    "pydantic[email]>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "pyjwt>=2.10.1",
+    "python-jose[cryptography]>=3.5.0",
+    "python-multipart>=0.0.21",
     "sqlalchemy>=2.0.45",
     "structlog>=25.5.0",
+    "uvicorn[standard]>=0.38.0",
+    "psycopg2-binary>=2.9.11",
+    "greenlet>=3.3.0",
 ]
 
 [tool.ruff]
@@ -28,3 +36,8 @@ indent-style = "space"
 
 [tool.mypy]
 python_version = "3.13"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.9",
+]

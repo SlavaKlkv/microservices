@@ -3,13 +3,13 @@ import logging
 import structlog
 
 logging.basicConfig(
-    format='%(message)s',
+    format="%(message)s",
     level=logging.INFO,
 )
 
 structlog.configure(
     processors=[
-        structlog.processors.TimeStamper(fmt='iso'),
+        structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
         structlog.processors.dict_tracebacks,
         structlog.processors.JSONRenderer(),
