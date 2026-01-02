@@ -2,14 +2,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from orders.core.exceptions import init_exception_handlers
+from orders.core.middleware import DBErrorMiddleware
+from orders.router import orders_router
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware import Middleware
-
-from auth.core.exceptions import init_exception_handlers
-from auth.core.middleware.exc_middleware import DBErrorMiddleware
-from auth.core.middleware.jwt_middleware import JWTAuthMiddleware
-from auth.routers.auth_router import auth_router
-from auth.routers.users_router import users_router
 
 
 @asynccontextmanager
@@ -26,16 +23,13 @@ middleware = [
         allow_headers=['*'],
     ),
     Middleware(DBErrorMiddleware),  # type: ignore[arg-type]
-    Middleware(JWTAuthMiddleware),  # type: ignore[arg-type]
 ]
 
 
 app = FastAPI(
-    title='Auth API',
+    title='Orders API',
     version='1.0.0',
-    description=(
-        'Auth microservice для аутентификации и управления пользователями.'
-    ),
+    description=('Orders microservice для управления заказами.'),
     middleware=middleware,
     lifespan=lifespan,
 )
@@ -45,11 +39,8 @@ Instrumentator().instrument(app).expose(app)
 init_exception_handlers(app)
 
 api_v1 = APIRouter(prefix='/api/v1')
-for router in (
-    auth_router,
-    users_router,
-):
-    api_v1.include_router(router)
+
+api_v1.include_router(orders_router)
 
 app.include_router(api_v1)
 

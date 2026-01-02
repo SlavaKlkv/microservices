@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from auth.core.exceptions import (
+from fastapi import status
+from orders.core.exceptions import (
     IntegrityConflictException,
-    UserAlreadyExistsException,
-    UserNotFoundException,
+    OrderAlreadyExistsException,
+    OrderNotFoundException,
     _json_error,
 )
-from fastapi import status
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -18,11 +18,11 @@ class DBErrorMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
 
-        except UserNotFoundException as exc:
+        except OrderNotFoundException as exc:
             return _json_error(status.HTTP_404_NOT_FOUND, str(exc.detail))
 
         except (
-            UserAlreadyExistsException,
+            OrderAlreadyExistsException,
             IntegrityConflictException,
         ) as exc:
             return _json_error(status.HTTP_409_CONFLICT, str(exc.detail))

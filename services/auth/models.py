@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, DateTime, String, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.db import Base
+from auth.core.db import Base
 
 
 class RevokedToken(Base):

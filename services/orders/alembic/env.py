@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
-from auth.models import Base
-from auth.settings import settings
+from orders.models import Base
+from orders.settings import settings
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context

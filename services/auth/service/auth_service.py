@@ -5,26 +5,25 @@ from typing import Any
 from uuid import uuid4
 
 import jwt
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.exceptions import (
+from auth.core.exceptions import (
     InvalidCredentials,
     TokenExpired,
     TokenInvalid,
 )
-from core.security import verify_password
-from repository import UserRepository
-from schemas.auth import TokenPair
-from schemas.users import (
+from auth.core.security import verify_password
+from auth.repository import UserRepository
+from auth.schemas.auth_schemas import TokenPair
+from auth.schemas.users_schemas import (
     User,
     UserCreate,
 )
-from schemas.users import (
+from auth.schemas.users_schemas import (
     User as UserSchema,
 )
-from service.users_service import UserService
-from settings import settings
+from auth.service.users_service import UserService
+from auth.settings import settings
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 AUTH_JWT_SECRET: str = settings.AUTH_JWT_SECRET
 ALGORITHM: str = settings.ALGORITHM

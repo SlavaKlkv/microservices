@@ -4,6 +4,21 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
 
+from auth.core.constants import (
+    FULL_NAME_MAX_LENGTH,
+    FULL_NAME_MIN_LENGTH,
+    LOGIN_MAX_LENGTH,
+    LOGIN_MIN_LENGTH,
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    USERNAME_RE,
+)
+from auth.core.validators import (
+    validate_full_name_value,
+    validate_password_value,
+    validate_username_value,
+)
+from auth.schemas.users_schemas import User as UserSchema
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,22 +29,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
-from core.constants import (
-    FULL_NAME_MAX_LENGTH,
-    FULL_NAME_MIN_LENGTH,
-    LOGIN_MAX_LENGTH,
-    LOGIN_MIN_LENGTH,
-    PASSWORD_MAX_LENGTH,
-    PASSWORD_MIN_LENGTH,
-    USERNAME_RE,
-)
-from core.validators import (
-    validate_full_name_value,
-    validate_password_value,
-    validate_username_value,
-)
-from schemas.users import User as UserSchema
 
 
 class LoginRequest(BaseModel):

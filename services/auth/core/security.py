@@ -3,8 +3,8 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-from core.exceptions import TokenExpired, TokenInvalid
-from settings import settings
+from auth.core.exceptions import TokenExpired, TokenInvalid
+from auth.settings import settings
 
 AUTH_JWT_SECRET = settings.AUTH_JWT_SECRET
 ALGORITHM = settings.ALGORITHM

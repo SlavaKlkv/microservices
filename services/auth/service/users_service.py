@@ -2,23 +2,22 @@ from __future__ import annotations
 
 from typing import Iterable, List
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.exceptions import (
+from auth.core.exceptions import (
     UserAlreadyExistsException,
     UserNotFoundException,
 )
-from core.security import hash_password
-from repository import UserRepository
-from schemas.users import (
+from auth.core.security import hash_password
+from auth.repository import UserRepository
+from auth.schemas.users_schemas import (
     User as UserSchema,
 )
-from schemas.users import (
+from auth.schemas.users_schemas import (
     UserCreate,
     UserDeleteResponse,
     UsersList,
     UserUpdate,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class UserService:

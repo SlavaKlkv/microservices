@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.db import get_session
-from schemas.auth import (
+from auth.core.db import get_session
+from auth.schemas.auth_schemas import (
     AuthResponse,
     LoginRequest,
     Message,
@@ -15,8 +11,11 @@ from schemas.auth import (
     TokenPair,
     to_auth_user,
 )
-from schemas.users import User, UserCreate
-from service.auth_service import AuthService
+from auth.schemas.users_schemas import User, UserCreate
+from auth.service.auth_service import AuthService
+from fastapi import APIRouter, Depends, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.ext.asyncio import AsyncSession
 
 auth_router = APIRouter(prefix='/auth', tags=['auth'])
 

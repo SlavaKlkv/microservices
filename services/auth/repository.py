@@ -6,11 +6,11 @@ from pydantic import EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import User
-from schemas.users import (
+from auth.models import User
+from auth.schemas.users_schemas import (
     User as UserSchema,
 )
-from schemas.users import (
+from auth.schemas.users_schemas import (
     UserCreate,
     UserDeleteResponse,
     UsersList,

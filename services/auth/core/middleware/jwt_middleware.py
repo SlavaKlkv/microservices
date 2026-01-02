@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from auth.core.db import SessionLocal
+from auth.service.auth_service import AuthService
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
-from core.db import SessionLocal
-from service.auth_service import AuthService
 
 EXCLUDE_PATHS: set[str] = {
     '/docs',
