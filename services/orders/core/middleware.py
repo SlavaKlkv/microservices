@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import status
+import structlog
 from orders.core.exceptions import (
     IntegrityConflictException,
     OrderAlreadyExistsException,
@@ -11,6 +12,8 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+logger = structlog.get_logger(__name__)
 
 
 class DBErrorMiddleware(BaseHTTPMiddleware):
@@ -48,13 +51,23 @@ class DBErrorMiddleware(BaseHTTPMiddleware):
 
             return _json_error(http_status, message)
 
-        except DBAPIError:
+        except DBAPIError as exc:
+            logger.exception(
+                'DBAPIError',
+                path=str(request.url.path),
+                method=request.method,
+            )
             return _json_error(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 'Ошибка базы данных',
             )
 
-        except Exception:
+        except Exception as exc:
+            logger.exception(
+                'Unhandled exception',
+                path=str(request.url.path),
+                method=request.method,
+            )
             return _json_error(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 'Произошла непредвиденная ошибка',

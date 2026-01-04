@@ -1,5 +1,6 @@
+import enum
+
 from orders.core.constants import (
-    ORDER_STATUS_MAX_LENGTH,
     ORDER_TOTAL_PRICE_MIN,
     ORDER_TOTAL_PRICE_PRECISION,
     ORDER_TOTAL_PRICE_SCALE,
@@ -10,10 +11,18 @@ from sqlalchemy import (
     DateTime,
     Integer,
     Numeric,
-    String,
     func,
 )
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import (
+    Enum as SAEnum,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+
+class OrderStatus(str, enum.Enum):
+    PENDING = 'PENDING'
+    CONFIRMED = 'CONFIRMED'
+    CANCELLED = 'CANCELLED'
 
 
 class Order(Base):
@@ -38,12 +47,13 @@ class Order(Base):
         comment='ID пользователя (владелец заказа)',
     )
 
-    status = mapped_column(
-        String(ORDER_STATUS_MAX_LENGTH),
-        index=True,
+    status: Mapped[OrderStatus] = mapped_column(
+        SAEnum(OrderStatus, name='order_status'),
+        default=OrderStatus.PENDING,
         nullable=False,
-        comment='Статус заказа',
+        index=True,
     )
+
     total_price = mapped_column(
         Numeric(ORDER_TOTAL_PRICE_PRECISION, ORDER_TOTAL_PRICE_SCALE),
         nullable=False,

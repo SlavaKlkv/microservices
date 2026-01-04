@@ -10,6 +10,7 @@ from orders.schemas import (
     OrderDelete,
     OrderRead,
     OrdersList,
+    OrderStatusRead,
     OrderUpdate,
 )
 from orders.service import OrderService
@@ -69,6 +70,28 @@ async def update_order(
     service: OrderService = Depends(get_order_service),
 ) -> OrderRead:
     return await service.update(order_id, payload)
+
+
+@orders_router.post(
+    '/{order_id}/confirm',
+    response_model=OrderStatusRead,
+)
+async def confirm_order(
+    order_id: int,
+    service: OrderService = Depends(get_order_service),
+) -> OrderStatusRead:
+    return await service.confirm(order_id)
+
+
+@orders_router.post(
+    '/{order_id}/cancel',
+    response_model=OrderStatusRead,
+)
+async def cancel_order(
+    order_id: int,
+    service: OrderService = Depends(get_order_service),
+) -> OrderStatusRead:
+    return await service.cancel(order_id)
 
 
 @orders_router.delete(

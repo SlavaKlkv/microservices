@@ -1,5 +1,4 @@
 from orders.models import Order
-from orders.schemas import OrderDelete
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +9,11 @@ class OrderRepository:
 
     async def get_by_id(self, order_id: int) -> Order | None:
         stmt = select(Order).where(Order.id == order_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_id_for_update(self, order_id: int) -> Order | None:
+        stmt = select(Order).where(Order.id == order_id).with_for_update()
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -38,8 +42,6 @@ class OrderRepository:
         await self.session.flush()
         return order
 
-    async def delete(self, obj: Order) -> OrderDelete:
-        deleted = OrderDelete.model_validate(obj)
+    async def delete(self, obj: Order) -> None:
         await self.session.delete(obj)
         await self.session.flush()
-        return deleted
