@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import status
-from orders.core.exceptions import (
-    IntegrityConflictException,
-    OrderAlreadyExistsException,
-    OrderNotFoundException,
-    _json_error,
-)
+from orders_history.core.exceptions import _json_error
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -20,15 +15,6 @@ class DBErrorMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         try:
             return await call_next(request)
-
-        except OrderNotFoundException as exc:
-            return _json_error(status.HTTP_404_NOT_FOUND, str(exc.detail))
-
-        except (
-            OrderAlreadyExistsException,
-            IntegrityConflictException,
-        ) as exc:
-            return _json_error(status.HTTP_409_CONFLICT, str(exc.detail))
 
         except IntegrityError as exc:
             code = getattr(getattr(exc, 'orig', None), 'pgcode', None)

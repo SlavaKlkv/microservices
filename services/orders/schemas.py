@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class OrderBase(BaseModel):
-    user_id: int = Field(description='ID пользователя (владелец заказа)')
     total_price: Decimal = Field(ge=0, description='Итоговая стоимость заказа')
 
 
@@ -15,7 +14,6 @@ class OrderCreate(OrderBase):
         json_schema_extra={
             'examples': [
                 {
-                    'user_id': 1,
                     'total_price': '199.99',
                 }
             ]

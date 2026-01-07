@@ -37,9 +37,9 @@ class OrderService:
     def _to_list(items: Iterable) -> list[OrderRead]:
         return [OrderRead.model_validate(i) for i in items]
 
-    async def create(self, payload: OrderCreate) -> OrderRead:
+    async def create(self, payload: OrderCreate, *, user_id: int) -> OrderRead:
         order = Order(
-            user_id=payload.user_id,
+            user_id=user_id,
             status=OrderStatus.PENDING,
             total_price=payload.total_price,
         )

@@ -5,12 +5,13 @@ Revises: d1f66ccd60bc
 Create Date: 2026-01-04 17:40:08.717507
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '9377a7524d09'
@@ -50,6 +51,8 @@ def upgrade() -> None:
         existing_comment='Статус заказа',
         existing_nullable=False,
     )
+
+
 def downgrade() -> None:
     """Downgrade schema."""
     order_status = postgresql.ENUM(

@@ -7,6 +7,7 @@ from orders.core.constants import (
 )
 from orders.core.db import Base
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     Integer,
@@ -40,11 +41,10 @@ class Order(Base):
 
     id = mapped_column(Integer, primary_key=True)
 
-    user_id = mapped_column(
-        Integer,
-        index=True,
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
-        comment='ID пользователя (владелец заказа)',
+        index=True,
     )
 
     status: Mapped[OrderStatus] = mapped_column(
