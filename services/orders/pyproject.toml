@@ -22,6 +22,7 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
     "psycopg2-binary>=2.9.11",
     "greenlet>=3.3.0",
+    "httpx>=0.28.1",
 ]
 
 [tool.ruff]

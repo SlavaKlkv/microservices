@@ -5,6 +5,7 @@ from orders.core.constants import (
     MAX_LIMIT,
 )
 from orders.core.db import get_session
+from orders.core.dependencies import get_current_user
 from orders.schemas import (
     OrderCreate,
     OrderDelete,
@@ -33,6 +34,7 @@ def get_order_service(
 async def create_order(
     payload: OrderCreate,
     service: OrderService = Depends(get_order_service),
+    user=Depends(get_current_user),
 ) -> OrderRead:
     return await service.create(payload)
 

@@ -170,3 +170,7 @@ class AuthResponse(BaseModel):
 
 class Message(BaseModel):
     message: str
+
+
+class IdentityResponse(BaseModel):
+    user_id: int

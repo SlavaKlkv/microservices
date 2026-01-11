@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from auth.core.db import get_session
+from auth.core.dependencies import get_current_user
 from auth.schemas.auth_schemas import (
     AuthResponse,
+    IdentityResponse,
     LoginRequest,
     Message,
     RefreshRequest,
@@ -96,3 +98,10 @@ async def revoke_token(
     service = AuthService(session)
     await service.revoke_refresh_token(request.refresh_token)
     return Message(message='refresh-токен отозван')
+
+
+@auth_router.get('/identity', response_model=IdentityResponse)
+async def get_identity(
+    user: User = Depends(get_current_user),
+):
+    return {'user_id': user.id}
