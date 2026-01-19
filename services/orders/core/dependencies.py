@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import structlog
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -15,6 +16,8 @@ class CurrentUser:
 
 
 bearer_scheme = HTTPBearer()
+
+logger = structlog.get_logger(__name__)
 
 
 async def get_current_user(
@@ -49,6 +52,12 @@ async def get_current_user(
         )
 
     if resp.status_code >= 400:
+        logger.error(
+            'auth_service_error',
+            status_code=resp.status_code,
+            url=url,
+            response_text=resp.text,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f'Auth service error: HTTP {resp.status_code}',

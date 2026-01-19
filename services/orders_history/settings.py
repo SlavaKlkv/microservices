@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     DB_PORT: int = 5432
     DB_USER: str = 'app'
     DB_PASSWORD: str = 'app'
-    DB_NAME: str = 'history_db'
+    DB_NAME: str = 'orders_history_db'
     DB_ECHO: bool = False
 
     ALGORITHM: str = 'HS256'

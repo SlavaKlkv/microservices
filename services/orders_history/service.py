@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from orders_history.models import OrderHistory, ProcessedEvent
 from orders_history.repository import (
     OrderHistoryRepository,
@@ -10,7 +12,9 @@ from orders_history.schemas import (
     OrderHistoryList,
     OrderHistoryRead,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -23,14 +27,22 @@ class HistoryService:
     async def record_event(
         self, event: HistoryEventIn
     ) -> OrderHistoryRead | None:
+        """Записывает событие в историю заказов.
+        Идемпотентность обеспечивается таблицей
+        ProcessedEvent (unique по event_id).
+        """
         async with self._session.begin():
-            # Пытаемся добавить event_id.
-            # Если уже есть — это повторная доставка.
-            try:
-                await self._processed_repo.add(
-                    ProcessedEvent(event_id=event.event_id)
+            # Идемпотентность по event_id:
+            # если событие уже обработано — просто выходим.
+            stmt = (
+                insert(ProcessedEvent)
+                .values(event_id=event.event_id)
+                .on_conflict_do_nothing(
+                    index_elements=[ProcessedEvent.event_id]
                 )
-            except IntegrityError:
+            )
+            result = cast(CursorResult[Any], await self._session.execute(stmt))
+            if result.rowcount == 0:
                 # event_id уже обработан: ничего не пишем в историю
                 return None
 
@@ -48,16 +60,48 @@ class HistoryService:
 
     async def list_history(
         self,
-        order_id: int,
         *,
         limit: int,
         offset: int,
+        order_id: int | None = None,
+        user_id: int | None = None,
+        event_type: str | None = None,
     ) -> OrderHistoryList:
-        items, total = await self._history_repo.list_by_order_id(
-            order_id,
-            limit=limit,
-            offset=offset,
+        """Возвращает историю заказов (общий журнал) с пагинацией и фильтрами.
+
+        Можно фильтровать по:
+        - order_id: история конкретного заказа
+        - user_id: история по пользователю
+        - event_type: тип события (например: order.created)
+        """
+        stmt = (
+            select(OrderHistory)
+            .order_by(OrderHistory.id.desc())
+            .limit(limit)
+            .offset(offset)
         )
+        count_stmt = select(func.count()).select_from(OrderHistory)
+
+        if order_id is not None:
+            stmt = stmt.where(OrderHistory.order_id == order_id)
+            count_stmt = count_stmt.where(OrderHistory.order_id == order_id)
+
+        if user_id is not None:
+            stmt = stmt.where(OrderHistory.user_id == user_id)
+            count_stmt = count_stmt.where(OrderHistory.user_id == user_id)
+
+        if event_type is not None:
+            stmt = stmt.where(OrderHistory.event_type == event_type)
+            count_stmt = count_stmt.where(
+                OrderHistory.event_type == event_type
+            )
+
+        result = await self._session.execute(stmt)
+        items = list(result.scalars().all())
+
+        count_result = await self._session.execute(count_stmt)
+        total = int(count_result.scalar_one())
+
         return OrderHistoryList(
             items=[OrderHistoryRead.model_validate(x) for x in items],
             total=total,

@@ -1,6 +1,6 @@
-import logging
 from typing import Any
 
+import structlog
 from fastapi import HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class OrderNotFoundException(HTTPException):
@@ -147,12 +147,29 @@ def init_exception_handlers(app):
 
     @app.exception_handler(DBAPIError)
     async def dbapi_error_handler(request: Request, exc: DBAPIError):
+        logger.error(
+            'Ошибка базы данных',
+            path=str(request.url.path),
+            method=request.method,
+            exception=str(exc),
+            exc_info=exc,
+        )
+
         return _json_error(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, 'Ошибка базы данных'
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            'Ошибка базы данных',
         )
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(
+            'Непредвиденная ошибка',
+            path=str(request.url.path),
+            method=request.method,
+            exception=str(exc),
+            exc_info=exc,
+        )
+
         return _json_error(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             'Произошла непредвиденная ошибка',

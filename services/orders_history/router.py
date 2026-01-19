@@ -23,13 +23,31 @@ def get_history_service(
 
 
 @orders_history_router.get(
-    '/{order_id}/history',
+    '/history',
     response_model=OrderHistoryList,
 )
-async def get_order_history(
-    order_id: int,
+async def list_orders_history(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(DEFAULT_OFFSET, ge=0),
+    order_id: int | None = Query(
+        default=None, ge=1, description='Фильтр по ID заказа'
+    ),
+    user_id: int | None = Query(
+        default=None, ge=1, description='Фильтр по ID пользователя'
+    ),
+    event_type: str | None = Query(
+        default=None,
+        description='Фильтр по типу события '
+                    '(order.created, order.confirmed, '
+                    'order.cancelled, order.price_changed)',
+    ),
     service: HistoryService = Depends(get_history_service),
 ) -> OrderHistoryList:
-    return await service.list_history(order_id, limit=limit, offset=offset)
+    """Общий журнал истории заказов с фильтрами."""
+    return await service.list_history(
+        limit=limit,
+        offset=offset,
+        order_id=order_id,
+        user_id=user_id,
+        event_type=event_type,
+    )
