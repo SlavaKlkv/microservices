@@ -14,7 +14,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings",
     "structlog",
-    "psycopg2>=2.9.11",
+    "psycopg2-binary>=2.9.11",
     "prometheus-fastapi-instrumentator>=7.1.0",
     "greenlet>=3.3.0",
 ]

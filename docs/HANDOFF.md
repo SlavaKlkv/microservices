@@ -49,6 +49,17 @@ order.created → order.notify_requested → order.notified          → order.c
   источником истины не становится.
 - **Redis сознательно не заменяет Postgres**: отметка «обработано» обязана
   коммититься атомарно с бизнес-записью, иначе событие теряется при падении.
+- **Миграции — отдельные one-shot job'ы** `*-migrate`, а не `alembic upgrade
+  head` в `command` API-сервиса. Иначе несколько процессов одной БД (API,
+  воркер, консьюмер) стартуют одновременно и дерутся за `alembic_version`.
+  Всё, что ходит в БД, ждёт `service_completed_successfully` своей миграции.
+- **Топики заводит `kafka-init`**, автосоздание в брокере выключено: иначе
+  первый подписавшийся консьюмер создаёт топик на одну партицию, и
+  параллелизм по `order_id` теряется навсегда. Основные топики — по
+  `KAFKA_TOPIC_PARTITIONS` партиций, DLQ — одна.
+- **`known-first-party` зафиксирован явно** в конфиге ruff: пакеты сервисов
+  лежат в `services/<name>`, а импортируются коротким именем, и разные
+  версии ruff классифицируют их по-разному.
 
 ## Сделано (ветка `develop`)
 
@@ -67,13 +78,11 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(notification): publish saga result events` | дедуп, запись уведомления и outbox-строка `order.notified`/`order.notification_failed` в одной транзакции; свой outbox-воркер |
 | `feat(orders): complete saga with compensation` | сага-консьюмер на `notifications.events.v1`, `PENDING→CONFIRMED/CANCELLED`, `order_saga`, идемпотентные переходы |
 | `feat(redis): add idempotency fast path` | `SET NX EX 24h` перед Postgres во всех консьюмерах, снятие заявки при неудаче, деградация без Redis |
+| `style: pin isort first-party packages` | `known-first-party` в конфиге ruff, порядок импортов приведён к нему во всём репо |
+| `feat(infra): run all workers and notification service in compose` | `postgres-notifications`, notification-service, 5 воркеров и консьюмеров отдельными сервисами, one-shot `*-migrate` и `kafka-init`, mailhog, `/notifications/` в nginx |
 
 ## Осталось
 
-10. `feat(infra): run all workers and notification service in compose` —
-    `postgres-notifications`, все воркеры и консьюмеры отдельными сервисами,
-    one-shot `*-migrate` (сейчас `alembic upgrade head` в command API-сервисов
-    даёт гонку миграций), `kafka-init` с явными топиками, `/notifications/` в nginx.
 11. `feat(observability): fix grafana provisioning and add saga metrics` —
     datasource-манифест вместо ошибочного scrape-конфига, монтирование
     provisioning, метрики outbox/консьюмеров/DLQ/длительности саги.
@@ -106,7 +115,15 @@ order.created → order.notify_requested → order.notified          → order.c
   `False`, после `release` снова `True`, при недоступном Redis консьюмер
   переходит в деградированный режим и продолжает работать через Postgres.
 - Сквозная проверка через настоящую Kafka **не делалась**: все проверки саги
-  шли на уровне сервисов и Postgres. Это остаётся на этапы 10 и 12.
+  шли на уровне сервисов и Postgres. Это остаётся на этап 12.
+- Новый `docker-compose.yml` **не поднимался вживую**: в сессии, где он
+  писался, не было docker-демона. Проверено только `docker compose config`
+  (25 сервисов рендерятся, якоря и `depends_on` разворачиваются верно) и
+  импорт всех точек входа воркеров и консьюмеров. Первый реальный
+  `up -d --wait` — обязательная часть этапа 12.
+- `orders_history` тянул `psycopg2` из исходников, остальные сервисы —
+  `psycopg2-binary`. Из-за этого `uv sync --all-packages` падал на машинах
+  без `libpq-dev`. Выровнено на `psycopg2-binary`, `uv.lock` пересобран.
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита
   дедупликации, то есть возможен сценарий «записали, но не отправили».
   Выбор осознанный — лучше не отправить, чем отправить дважды.
@@ -114,12 +131,28 @@ order.created → order.notify_requested → order.notified          → order.c
 ## Как проверять
 
 ```bash
+cp .env.example .env
+for s in auth orders orders_history notification; do
+  cp services/$s/.env.docker.example services/$s/.env.docker
+done
+
 uv sync --all-packages
 uv run ruff check services packages && uv run ruff format --check services packages
+uv run mypy packages services
 docker compose build && docker compose up -d --wait
 ```
+
+`docker compose config --quiet` валидирует файл без запущенного демона.
+`*-migrate` и `kafka-init` — one-shot job'ы: в `docker compose ps` они
+показаны как `exited (0)`, это норма, а не падение. Список топиков виден
+в логах `kafka-init` и в kafka-ui на `:8080`. Письма сервиса уведомлений —
+в mailhog на `${MAILHOG_HTTP_PORT}` (реальная отправка включается
+`NOTIFICATION_ENABLED=true`).
 
 E2E-сценарий саги: `POST /api/v1/orders` с токеном → в течение нескольких секунд
 `GET /api/v1/orders/{id}` показывает `CONFIRMED`, а в истории заказа лежат четыре
 события с одним `saga_id`. Failure-путь включается настройкой
 `NOTIFICATION_FAIL_RATE=1.0` — заказ должен уйти в `CANCELLED`.
+
+Через nginx (`:${NGINX_HTTP_PORT}`) сервисы доступны как `/auth/`, `/orders/`,
+`/history/` и `/notifications/`.

@@ -8,7 +8,65 @@ volumes:
   pg_auth_data:
   pg_orders_data:
   pg_history_data:
+  pg_notification_data:
   grafana_data:
+
+# ----------------------
+# Общие фрагменты
+# ----------------------
+
+# Проверка готовности HTTP-сервиса. curl в образах нет, зато есть python.
+x-http-healthcheck: &http-healthcheck
+  test:
+    - CMD-SHELL
+    - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready').read()"
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 20s
+
+# Одноразовые job'ы (миграции, создание топиков) не перезапускаем.
+x-oneshot: &oneshot
+  restart: "no"
+  networks:
+    - microservices_net
+
+# Фоновые процессы: воркеры и консьюмеры. Порт не слушают, поэтому
+# healthcheck'а у них нет; SIGTERM они обрабатывают сами, отсюда
+# увеличенный stop_grace_period — дать докоммитить офсеты и батч.
+x-background: &background
+  restart: unless-stopped
+  stop_grace_period: 30s
+  networks:
+    - microservices_net
+
+x-auth-image: &auth-image
+  build:
+    context: .
+    dockerfile: services/auth/Dockerfile
+  env_file:
+    - ./services/auth/.env.docker
+
+x-orders-image: &orders-image
+  build:
+    context: .
+    dockerfile: services/orders/Dockerfile
+  env_file:
+    - ./services/orders/.env.docker
+
+x-history-image: &history-image
+  build:
+    context: .
+    dockerfile: services/orders_history/Dockerfile
+  env_file:
+    - ./services/orders_history/.env.docker
+
+x-notification-image: &notification-image
+  build:
+    context: .
+    dockerfile: services/notification/Dockerfile
+  env_file:
+    - ./services/notification/.env.docker
 
 services:
   # ----------------------
@@ -71,6 +129,30 @@ services:
       timeout: 3s
       retries: 20
 
+  postgres-notifications:
+    image: postgres:16-alpine
+    container_name: postgres-notifications
+    environment:
+      POSTGRES_DB: ${NOTIFICATION_DB_NAME}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${NOTIFICATION_DB_PORT}:5432"
+    volumes:
+      - pg_notification_data:/var/lib/postgresql/data
+    networks:
+      - microservices_net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${NOTIFICATION_DB_NAME}
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ----------------------
+  # Инфраструктура
+  # ----------------------
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -103,7 +185,9 @@ services:
       KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
 
       ALLOW_PLAINTEXT_LISTENER: "yes"
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Топики заводит kafka-init с нужным числом партиций. С автосозданием
+      # первый подписавшийся консьюмер получил бы топик на одну партицию.
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
     ports:
       - "9092:9092"
     networks:
@@ -114,6 +198,33 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  # Явно заводит топики саги и парные DLQ. Ключ партиционирования —
+  # order_id, поэтому партиций может быть больше одной: порядок событий
+  # внутри заказа всё равно сохраняется. DLQ хватает одной партиции.
+  kafka-init:
+    <<: *oneshot
+    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        for topic in orders.events.v1 notifications.events.v1; do
+          kafka-topics.sh --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} \
+            --create --if-not-exists --topic "$$topic" \
+            --partitions ${KAFKA_TOPIC_PARTITIONS} \
+            --replication-factor ${KAFKA_TOPIC_REPLICATION_FACTOR}
+          kafka-topics.sh --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} \
+            --create --if-not-exists --topic "$$topic.dlq" \
+            --partitions 1 \
+            --replication-factor ${KAFKA_TOPIC_REPLICATION_FACTOR}
+        done
+        kafka-topics.sh --bootstrap-server ${KAFKA_BOOTSTRAP_SERVERS} --list
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -126,6 +237,16 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
     ports:
       - "8080:8080"
+    networks:
+      - microservices_net
+
+  # Локальная «почта»: письма сервиса уведомлений видны в веб-интерфейсе,
+  # настоящий SMTP для проверки саги не нужен.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    ports:
+      - "${MAILHOG_HTTP_PORT}:8025"
     networks:
       - microservices_net
 
@@ -164,66 +285,161 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
 
-  auth-service:
-    build:
-      context: .
-      dockerfile: services/auth/Dockerfile
-    container_name: auth-service
-    env_file:
-      - ./services/auth/.env.docker
+  # ----------------------
+  # Миграции: отдельные one-shot job'ы.
+  # Раньше alembic upgrade head висел в command самого API-сервиса —
+  # при нескольких процессах на одну БД это гонка за таблицу alembic_version.
+  # ----------------------
+  auth-migrate:
+    <<: [*auth-image, *oneshot]
+    container_name: auth-migrate
     depends_on:
       postgres-auth:
         condition: service_healthy
+    command: ["uv", "run", "alembic", "-c", "auth/alembic.ini", "upgrade", "head"]
+
+  orders-migrate:
+    <<: [*orders-image, *oneshot]
+    container_name: orders-migrate
+    depends_on:
+      postgres-orders:
+        condition: service_healthy
+    command: ["uv", "run", "alembic", "-c", "orders/alembic.ini", "upgrade", "head"]
+
+  orders-history-migrate:
+    <<: [*history-image, *oneshot]
+    container_name: orders-history-migrate
+    depends_on:
+      postgres-history:
+        condition: service_healthy
+    command: ["uv", "run", "alembic", "-c", "orders_history/alembic.ini", "upgrade", "head"]
+
+  notification-migrate:
+    <<: [*notification-image, *oneshot]
+    container_name: notification-migrate
+    depends_on:
+      postgres-notifications:
+        condition: service_healthy
+    command: ["uv", "run", "alembic", "-c", "notification/alembic.ini", "upgrade", "head"]
+
+  # ----------------------
+  # HTTP API
+  # ----------------------
+  auth-service:
+    <<: *auth-image
+    container_name: auth-service
+    restart: unless-stopped
+    depends_on:
+      auth-migrate:
+        condition: service_completed_successfully
     ports:
       - "${AUTH_SERVICE_PORT}:8000"
-    command: >
-      sh -c "
-      uv run alembic -c auth/alembic.ini upgrade head &&
-      uv run uvicorn auth.main:app --host 0.0.0.0 --port 8000
-      "
+    command: ["uv", "run", "uvicorn", "auth.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck: *http-healthcheck
     networks:
       - microservices_net
 
   orders-service:
-     build:
-       context: .
-       dockerfile: services/orders/Dockerfile
-     container_name: orders-service
-     env_file:
-       - ./services/orders/.env.docker
-     depends_on:
-       postgres-orders:
-         condition: service_healthy
-       kafka:
-         condition: service_healthy
-     ports:
-       - "${ORDERS_SERVICE_PORT}:8000"
-     command: >
-       sh -c "
-       uv run alembic -c orders/alembic.ini upgrade head &&
-       uv run uvicorn orders.main:app --host 0.0.0.0 --port 8000
-       "
-     networks:
-       - microservices_net
+    <<: *orders-image
+    container_name: orders-service
+    restart: unless-stopped
+    depends_on:
+      orders-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${ORDERS_SERVICE_PORT}:8000"
+    command: ["uv", "run", "uvicorn", "orders.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck: *http-healthcheck
+    networks:
+      - microservices_net
 
   orders-history-service:
-     build:
-       context: .
-       dockerfile: services/orders_history/Dockerfile
-     container_name: orders-history-service
-     env_file:
-       - ./services/orders_history/.env.docker
-     depends_on:
-       postgres-history:
-         condition: service_healthy
-       kafka:
-         condition: service_healthy
-     ports:
-       - "${HISTORY_SERVICE_PORT}:8000"
-     command: >
-       sh -c "
-       uv run alembic -c orders_history/alembic.ini upgrade head &&
-       uv run uvicorn orders_history.main:app --host 0.0.0.0 --port 8000
-       "
-     networks:
-       - microservices_net
+    <<: *history-image
+    container_name: orders-history-service
+    restart: unless-stopped
+    depends_on:
+      orders-history-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${HISTORY_SERVICE_PORT}:8000"
+    command: ["uv", "run", "uvicorn", "orders_history.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck: *http-healthcheck
+    networks:
+      - microservices_net
+
+  notification-service:
+    <<: *notification-image
+    container_name: notification-service
+    restart: unless-stopped
+    depends_on:
+      notification-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT}:8000"
+    command: ["uv", "run", "uvicorn", "notification.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck: *http-healthcheck
+    networks:
+      - microservices_net
+
+  # ----------------------
+  # Outbox-воркеры: публикуют накопленные события в Kafka.
+  # ----------------------
+  orders-outbox-worker:
+    <<: [*orders-image, *background]
+    container_name: orders-outbox-worker
+    depends_on:
+      orders-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    command: ["uv", "run", "python", "-m", "orders.outbox_worker"]
+
+  notification-outbox-worker:
+    <<: [*notification-image, *background]
+    container_name: notification-outbox-worker
+    depends_on:
+      notification-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    command: ["uv", "run", "python", "-m", "notification.outbox_worker"]
+
+  # ----------------------
+  # Консьюмеры саги. Redis — быстрый путь идемпотентности, поэтому
+  # ждём и его: без Redis консьюмер работает, но в деградации.
+  # ----------------------
+  orders-consumer:
+    <<: [*orders-image, *background]
+    container_name: orders-consumer
+    depends_on:
+      orders-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "orders.consumer"]
+
+  orders-history-consumer:
+    <<: [*history-image, *background]
+    container_name: orders-history-consumer
+    depends_on:
+      orders-history-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "orders_history.consumer"]
+
+  notification-consumer:
+    <<: [*notification-image, *background]
+    container_name: notification-consumer
+    depends_on:
+      notification-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "notification.consumer"]
