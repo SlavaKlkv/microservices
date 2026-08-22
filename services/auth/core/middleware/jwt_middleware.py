@@ -12,6 +12,7 @@ EXCLUDE_PATHS: set[str] = {
     '/openapi.json',
     '/redoc',
     '/health',
+    '/ready',
     '/favicon.ico',
     '/metrics',
     '/api/v1/external/posts',

@@ -253,6 +253,18 @@ services:
   nginx:
     image: nginx:alpine
     container_name: nginx
+    # Без ожидания сервисов nginx падает на старте: имена upstream'ов
+    # ещё не резолвятся в DNS docker-сети, и это фатальная ошибка
+    # конфигурации, а не повод для рестарта.
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      orders-service:
+        condition: service_healthy
+      orders-history-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
     ports:
       - "${NGINX_HTTP_PORT}:80"
     networks:
