@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from orders_history.models import OrderHistory, ProcessedEvent
 from orders_history.repository import (
     OrderHistoryRepository,
@@ -12,10 +17,6 @@ from orders_history.schemas import (
     OrderHistoryList,
     OrderHistoryRead,
 )
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class HistoryService:
@@ -36,7 +37,7 @@ class HistoryService:
             # если событие уже обработано — просто выходим.
             stmt = (
                 insert(ProcessedEvent)
-                .values(event_id=event.event_id)
+                .values(event_id=event.event_id, event_type=event.event_type)
                 .on_conflict_do_nothing(
                     index_elements=[ProcessedEvent.event_id]
                 )
@@ -51,6 +52,7 @@ class HistoryService:
                 user_id=event.user_id,
                 event_id=event.event_id,
                 event_type=event.event_type,
+                saga_id=event.saga_id,
                 payload=event.payload,
             )
             await self._history_repo.add_history(history)

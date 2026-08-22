@@ -1,5 +1,6 @@
 """Общий контракт событий микросервисов."""
 
+from ms_events.consumer import EventConsumer, run_consumer
 from ms_events.db import (
     OutboxMixin,
     OutboxStatus,
@@ -23,6 +24,7 @@ __all__ = [
     'CURRENT_EVENT_VERSION',
     'TOPIC_BY_PRODUCER',
     'DBSettings',
+    'EventConsumer',
     'EventEnvelope',
     'EventProducer',
     'EventType',
@@ -37,6 +39,7 @@ __all__ = [
     'Topic',
     'backoff_seconds',
     'outbox_values',
+    'run_consumer',
     'run_worker',
     'setup_logging',
     'utcnow',

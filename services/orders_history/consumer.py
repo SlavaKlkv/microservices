@@ -1,125 +1,88 @@
+"""Консьюмер сервиса истории заказов.
+
+Слушает оба топика саги — заказов и уведомлений, — чтобы в журнале была
+вся цепочка целиком, а не только события orders. Разбор конверта, DLQ и
+ограниченные повторы обеспечивает общий ``ms_events.EventConsumer``.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import json
-import signal
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
 
 import structlog
-from aiokafka import AIOKafkaConsumer
-from ms_events import Topic
-from sqlalchemy.ext.asyncio import AsyncSession
+from ms_events import (
+    EventConsumer,
+    EventEnvelope,
+    Topic,
+    run_consumer,
+    setup_logging,
+)
 
-from orders_history.core.db import get_session
+from orders_history.core.db import SessionLocal
 from orders_history.schemas import HistoryEventIn
 from orders_history.service import HistoryService
 from orders_history.settings import settings
 
-logger = structlog.get_logger(__name__)
+logger = structlog.get_logger('orders_history.consumer')
+
+#: История пишет всё, что происходит в саге.
+TOPICS = (Topic.ORDERS, Topic.NOTIFICATIONS)
 
 
-KAFKA_BOOTSTRAP_SERVERS = settings.KAFKA_BOOTSTRAP_SERVERS
-KAFKA_TOPIC = str(Topic.ORDERS)
-KAFKA_GROUP_ID = settings.KAFKA_GROUP_ID
-
-
-@asynccontextmanager
-async def _get_async_session() -> AsyncIterator[AsyncSession]:
-    async for session in get_session():
-        yield session
-
-
-async def handle_message(session: AsyncSession, raw: dict[str, Any]) -> None:
-    """
-    Обрабатывает одно сообщение из Kafka и пишет его в историю заказов.
-    """
-    event = HistoryEventIn(
-        event_id=raw['event_id'],
-        order_id=raw['order_id'],
-        user_id=int(raw['user_id']),
-        event_type=raw['event_type'],
-        payload=raw.get('payload', {}),
+def to_history_event(envelope: EventEnvelope) -> HistoryEventIn:
+    """Переводит конверт события в схему записи журнала."""
+    payload = envelope.payload
+    return HistoryEventIn(
+        event_id=str(envelope.event_id),
+        event_type=str(envelope.event_type),
+        order_id=int(payload.get('order_id') or envelope.aggregate_id),
+        user_id=int(payload['user_id']),
+        saga_id=str(envelope.saga_id),
+        payload=payload,
     )
 
-    service = HistoryService(session)
-    result = await service.record_event(event)
+
+async def handle_event(envelope: EventEnvelope, source_topic: str) -> None:
+    """Записывает одно событие в историю (идемпотентно по event_id)."""
+    event = to_history_event(envelope)
+
+    async with SessionLocal() as session:
+        result = await HistoryService(session).record_event(event)
 
     if result is None:
         logger.info(
-            'history_event_skipped',
+            'history.event_skipped',
             event_id=event.event_id,
             reason='already_processed',
         )
     else:
         logger.info(
-            'history_event_recorded',
+            'history.event_recorded',
             event_id=event.event_id,
             event_type=event.event_type,
             order_id=event.order_id,
+            source_topic=source_topic,
         )
 
 
+def build_consumer() -> EventConsumer:
+    return EventConsumer(
+        service='orders-history',
+        topics=TOPICS,
+        group_id=settings.KAFKA_GROUP_ID,
+        settings=settings,
+        handler=handle_event,
+    )
+
+
 async def consume(stop_event: asyncio.Event | None = None) -> None:
-    """
-    Kafka consumer для сервиса истории заказов.
-    """
-    stop_event = stop_event or asyncio.Event()
-    consumer = AIOKafkaConsumer(
-        KAFKA_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=KAFKA_GROUP_ID,
-        enable_auto_commit=False,
-        auto_offset_reset='earliest',
-        value_deserializer=lambda v: json.loads(v.decode('utf-8')),
-    )
-
-    await consumer.start()
-    logger.info(
-        'orders_history_consumer_started',
-        topic=KAFKA_TOPIC,
-        bootstrap=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=KAFKA_GROUP_ID,
-    )
-
-    try:
-        async for msg in consumer:
-            if stop_event.is_set():
-                break
-
-            logger.debug(
-                'kafka_message_received',
-                partition=msg.partition,
-                offset=msg.offset,
-                key=msg.key.decode('utf-8') if msg.key else None,
-            )
-
-            async with _get_async_session() as session:
-                try:
-                    await handle_message(session, msg.value)
-                    await consumer.commit()
-                except Exception:
-                    logger.exception(
-                        'history_event_processing_failed',
-                        message=msg.value,
-                    )
-                    # commit НЕ делаем — сообщение будет прочитано повторно
-    finally:
-        await consumer.stop()
-        logger.info('orders_history_consumer_stopped')
-
-
-async def _amain() -> None:
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop_event.set)
-    await consume(stop_event)
+    await build_consumer().run(stop_event)
 
 
 def main() -> None:
+    setup_logging('orders-history-consumer', level=settings.LOG_LEVEL)
     try:
-        asyncio.run(_amain())
+        asyncio.run(run_consumer(build_consumer()))
     except KeyboardInterrupt:
         pass
 

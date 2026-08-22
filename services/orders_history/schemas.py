@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from orders_history.core.constants import (
     EVENT_ID_MAX_LEN,
     EVENT_TYPE_MAX_LEN,
 )
-from pydantic import BaseModel, ConfigDict, Field
 
 
 class HistoryEventIn(BaseModel):
@@ -28,6 +29,9 @@ class HistoryEventIn(BaseModel):
     )
     order_id: int = Field(gt=0, description='ID заказа')
     user_id: int = Field(gt=0, description='ID пользователя')
+    saga_id: str | None = Field(
+        default=None, max_length=36, description='Идентификатор саги'
+    )
     payload: dict[str, Any] = Field(
         description='Полезная нагрузка события (JSON)'
     )
@@ -41,6 +45,7 @@ class OrderHistoryRead(BaseModel):
     user_id: int
     event_id: str
     event_type: str
+    saga_id: str | None
     payload: dict[str, Any]
     created_at: datetime
 

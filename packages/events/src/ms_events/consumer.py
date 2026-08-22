@@ -1,0 +1,210 @@
+"""Общий Kafka-консьюмер с DLQ и ограниченными повторами.
+
+Правила одинаковы во всех сервисах-подписчиках:
+
+* сообщение, которое не разбирается в ``EventEnvelope``, — «отравленная
+  таблетка»: повторы бессмысленны, оно сразу уходит в DLQ, а офсет
+  коммитится, иначе консьюмер зациклится на нём навсегда;
+* транзиентная ошибка обработки (недоступна БД и т.п.) повторяется с
+  экспоненциальной задержкой до ``CONSUMER_MAX_ATTEMPTS``, после чего
+  событие тоже уходит в DLQ, чтобы не блокировать партицию.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import signal
+from collections.abc import Awaitable, Callable, Sequence
+
+import structlog
+from aiokafka import AIOKafkaConsumer
+from pydantic import ValidationError
+
+from ms_events.envelope import EventEnvelope
+from ms_events.producer import EventProducer
+from ms_events.retry import backoff_seconds
+from ms_events.settings import KafkaSettings
+from ms_events.types import Topic
+
+logger = structlog.get_logger('ms_events.consumer')
+
+#: Обработчик одного события: получает конверт и топик-источник.
+Handler = Callable[[EventEnvelope, str], Awaitable[None]]
+
+
+class EventConsumer:
+    """Читает топики и передаёт разобранные конверты в обработчик."""
+
+    def __init__(
+        self,
+        *,
+        service: str,
+        topics: Sequence[Topic],
+        group_id: str,
+        settings: KafkaSettings,
+        handler: Handler,
+    ) -> None:
+        self._service = service
+        self._topics = list(topics)
+        self._group_id = group_id
+        self._settings = settings
+        self._handler = handler
+
+    @staticmethod
+    def _dlq_topic(source_topic: str) -> str | None:
+        try:
+            return str(Topic(source_topic).dlq)
+        except ValueError:
+            logger.error('consumer.unknown_topic', topic=source_topic)
+            return None
+
+    async def _to_dlq(
+        self,
+        producer: EventProducer,
+        *,
+        source_topic: str,
+        value: bytes,
+        key: bytes | None,
+        reason: str,
+    ) -> None:
+        dlq = self._dlq_topic(source_topic)
+        if dlq is None:
+            return
+        try:
+            await producer.send_raw(
+                dlq,
+                value,
+                key=key.decode('utf-8') if key else None,
+            )
+        except Exception:
+            logger.exception('consumer.dlq_publish_failed', topic=dlq)
+        else:
+            logger.warning(
+                'consumer.moved_to_dlq',
+                topic=dlq,
+                source_topic=source_topic,
+                reason=reason,
+            )
+
+    async def _handle_with_retries(
+        self,
+        producer: EventProducer,
+        envelope: EventEnvelope,
+        *,
+        source_topic: str,
+        raw_value: bytes,
+        key: bytes | None,
+    ) -> None:
+        max_attempts = max(1, self._settings.CONSUMER_MAX_ATTEMPTS)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self._handler(envelope, source_topic)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    'consumer.handler_failed',
+                    event_id=str(envelope.event_id),
+                    event_type=str(envelope.event_type),
+                    attempt=attempt,
+                )
+                if attempt >= max_attempts:
+                    await self._to_dlq(
+                        producer,
+                        source_topic=source_topic,
+                        value=raw_value,
+                        key=key,
+                        reason='max_attempts_exhausted',
+                    )
+                    return
+                await asyncio.sleep(
+                    backoff_seconds(
+                        attempt,
+                        self._settings.CONSUMER_BACKOFF_BASE_SEC,
+                        self._settings.CONSUMER_BACKOFF_CAP_SEC,
+                    )
+                )
+            else:
+                return
+
+    async def run(self, stop_event: asyncio.Event | None = None) -> None:
+        stop_event = stop_event or asyncio.Event()
+        settings = self._settings
+
+        consumer = AIOKafkaConsumer(
+            *[str(t) for t in self._topics],
+            bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+            client_id=f'{settings.KAFKA_CLIENT_ID}-consumer',
+            group_id=self._group_id,
+            enable_auto_commit=False,
+            auto_offset_reset=settings.KAFKA_AUTO_OFFSET_RESET,
+        )
+        producer = EventProducer(
+            bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+            client_id=f'{settings.KAFKA_CLIENT_ID}-dlq',
+            request_timeout_ms=settings.KAFKA_REQUEST_TIMEOUT_MS,
+        )
+
+        await consumer.start()
+        await producer.start()
+        logger.info(
+            'consumer.started',
+            service=self._service,
+            topics=[str(t) for t in self._topics],
+            group_id=self._group_id,
+        )
+
+        try:
+            while not stop_event.is_set():
+                batch = await consumer.getmany(timeout_ms=1000, max_records=50)
+                for records in batch.values():
+                    for msg in records:
+                        await self._process(producer, msg)
+                        await consumer.commit()
+                    if stop_event.is_set():
+                        break
+        finally:
+            await producer.stop()
+            await consumer.stop()
+            logger.info('consumer.stopped', service=self._service)
+
+    async def _process(self, producer: EventProducer, msg: object) -> None:
+        raw_value: bytes = getattr(msg, 'value', b'') or b''
+        key: bytes | None = getattr(msg, 'key', None)
+        source_topic: str = str(getattr(msg, 'topic', ''))
+
+        try:
+            envelope = EventEnvelope.from_json(raw_value)
+        except (ValidationError, ValueError):
+            logger.exception(
+                'consumer.invalid_envelope', source_topic=source_topic
+            )
+            await self._to_dlq(
+                producer,
+                source_topic=source_topic,
+                value=raw_value,
+                key=key,
+                reason='invalid_envelope',
+            )
+            return
+
+        await self._handle_with_retries(
+            producer,
+            envelope,
+            source_topic=source_topic,
+            raw_value=raw_value,
+            key=key,
+        )
+
+
+async def run_consumer(consumer: EventConsumer) -> None:
+    """Запускает консьюмер с обработкой SIGINT/SIGTERM."""
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            pass
+    await consumer.run(stop_event)
