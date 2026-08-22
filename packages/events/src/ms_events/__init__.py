@@ -8,6 +8,7 @@ from ms_events.db import (
     outbox_values,
 )
 from ms_events.envelope import CURRENT_EVENT_VERSION, EventEnvelope, utcnow
+from ms_events.idempotency import IdempotencyCache
 from ms_events.logging import setup_logging
 from ms_events.outbox import OutboxWorker, run_worker
 from ms_events.producer import EventProducer
@@ -28,6 +29,7 @@ __all__ = [
     'EventEnvelope',
     'EventProducer',
     'EventType',
+    'IdempotencyCache',
     'KafkaSettings',
     'OutboxMixin',
     'OutboxStatus',

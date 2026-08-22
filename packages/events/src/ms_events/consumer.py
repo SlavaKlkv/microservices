@@ -21,9 +21,10 @@ from aiokafka import AIOKafkaConsumer
 from pydantic import ValidationError
 
 from ms_events.envelope import EventEnvelope
+from ms_events.idempotency import IdempotencyCache
 from ms_events.producer import EventProducer
 from ms_events.retry import backoff_seconds
-from ms_events.settings import KafkaSettings
+from ms_events.settings import KafkaSettings, RedisSettings
 from ms_events.types import Producer, Topic
 
 logger = structlog.get_logger('ms_events.consumer')
@@ -44,6 +45,7 @@ class EventConsumer:
         settings: KafkaSettings,
         handler: Handler,
         skip_producers: Sequence[Producer] = (),
+        redis_settings: RedisSettings | None = None,
     ) -> None:
         self._service = service
         self._topics = list(topics)
@@ -53,6 +55,12 @@ class EventConsumer:
         #: Собственные события пропускаем: подписка сервиса на свой же
         #: топик замкнула бы сагу в бесконечный цикл.
         self._skip_producers = {str(p) for p in skip_producers}
+        #: Быстрый путь идемпотентности; источник истины — Postgres.
+        self._idempotency = (
+            IdempotencyCache(redis_settings, namespace=group_id)
+            if redis_settings is not None
+            else None
+        )
 
     @staticmethod
     def _dlq_topic(source_topic: str) -> str | None:
@@ -101,6 +109,13 @@ class EventConsumer:
     ) -> None:
         max_attempts = max(1, self._settings.CONSUMER_MAX_ATTEMPTS)
 
+        event_id = str(envelope.event_id)
+        if self._idempotency is not None and not await self._idempotency.claim(
+            event_id
+        ):
+            logger.debug('consumer.duplicate_skipped', event_id=event_id)
+            return
+
         for attempt in range(1, max_attempts + 1):
             try:
                 await self._handler(envelope, source_topic)
@@ -113,6 +128,10 @@ class EventConsumer:
                     event_type=str(envelope.event_type),
                     attempt=attempt,
                 )
+                # Заявку снимаем: в Postgres обработка не закоммитилась,
+                # иначе повтор был бы отброшен как «дубль».
+                if self._idempotency is not None:
+                    await self._idempotency.release(event_id)
                 if attempt >= max_attempts:
                     await self._to_dlq(
                         producer,
@@ -152,6 +171,8 @@ class EventConsumer:
 
         await consumer.start()
         await producer.start()
+        if self._idempotency is not None:
+            await self._idempotency.start()
         logger.info(
             'consumer.started',
             service=self._service,
@@ -169,6 +190,8 @@ class EventConsumer:
                     if stop_event.is_set():
                         break
         finally:
+            if self._idempotency is not None:
+                await self._idempotency.stop()
             await producer.stop()
             await consumer.stop()
             logger.info('consumer.stopped', service=self._service)

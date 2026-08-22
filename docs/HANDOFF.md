@@ -66,11 +66,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `refactor(notification): rewrite service on fastapi and sqlalchemy` | вместо голого asyncpg и рантайм-DDL — FastAPI, SQLAlchemy, Alembic, SMTP из настроек |
 | `feat(notification): publish saga result events` | дедуп, запись уведомления и outbox-строка `order.notified`/`order.notification_failed` в одной транзакции; свой outbox-воркер |
 | `feat(orders): complete saga with compensation` | сага-консьюмер на `notifications.events.v1`, `PENDING→CONFIRMED/CANCELLED`, `order_saga`, идемпотентные переходы |
+| `feat(redis): add idempotency fast path` | `SET NX EX 24h` перед Postgres во всех консьюмерах, снятие заявки при неудаче, деградация без Redis |
 
 ## Осталось
 
-9. `feat(redis): add idempotency fast path` — `SET NX EX` перед Postgres,
-   деградация при недоступности Redis.
 10. `feat(infra): run all workers and notification service in compose` —
     `postgres-notifications`, все воркеры и консьюмеры отдельными сервисами,
     one-shot `*-migrate` (сейчас `alembic upgrade head` в command API-сервисов
@@ -103,6 +102,11 @@ order.created → order.notify_requested → order.notified          → order.c
   участвовала — сервисный слой вызывался напрямую.
 - `ALTER TYPE … ADD VALUE` для статуса `DEAD` необратим: downgrade миграции
   не возвращает enum в прежний вид.
+- Redis-путь проверен на живом контейнере: повторный `claim` возвращает
+  `False`, после `release` снова `True`, при недоступном Redis консьюмер
+  переходит в деградированный режим и продолжает работать через Postgres.
+- Сквозная проверка через настоящую Kafka **не делалась**: все проверки саги
+  шли на уровне сервисов и Postgres. Это остаётся на этапы 10 и 12.
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита
   дедупликации, то есть возможен сценарий «записали, но не отправили».
   Выбор осознанный — лучше не отправить, чем отправить дважды.

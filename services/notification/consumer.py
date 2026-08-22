@@ -58,6 +58,7 @@ def build_consumer() -> EventConsumer:
         topics=TOPICS,
         group_id=settings.KAFKA_GROUP_ID,
         settings=settings,
+        redis_settings=settings,
         handler=handle_event,
     )
 

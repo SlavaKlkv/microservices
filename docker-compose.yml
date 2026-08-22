@@ -71,6 +71,20 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT}:6379"
+    networks:
+      - microservices_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   kafka:
     image: bitnamilegacy/kafka:4.0.0-debian-12-r10
     container_name: kafka
