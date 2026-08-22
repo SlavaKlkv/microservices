@@ -96,11 +96,14 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(observability): fix grafana provisioning and add saga metrics` | datasource-манифест вместо scrape-конфига, монтирование provisioning, метрики outbox/консьюмеров/DLQ/длительности саги, дашборд саги |
 | `test: cover services and saga with pytest` | 92 теста: unit на конверт/DLQ/идемпотентность/метрики, integration на живом Postgres (сага, компенсация, миграции), e2e под маркером |
 | `ci: add github actions pipeline` | lint/mypy, тесты на postgres-сервисе, сборка четырёх образов матрицей, e2e на поднятом compose |
+| `docs: document saga architecture and commands` | корневой README с mermaid-диаграммой саги, README четырёх сервисов и общего пакета, шесть ADR |
 
 ## Осталось
 
-14. `docs: document saga architecture and commands` — полноценный корневой
-    README с mermaid-диаграммой саги, README сервисов, `docs/adr/`.
+Ничего: этапы 1–14 закрыты. Этот документ выполнил свою задачу и
+удаляется — всё, что должно было пережить его, перенесено в корневой
+README (запуск, команды, известные ограничения, соглашения) и в
+`docs/adr/` (архитектурные решения с обоснованием).
 
 ## Открытые риски
 
