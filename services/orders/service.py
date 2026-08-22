@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 from uuid import UUID, uuid4
 
 import structlog
@@ -10,7 +10,10 @@ from ms_events import (
     Producer,
     Topic,
     outbox_values,
+    utcnow,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +21,14 @@ from orders.core.exceptions import (
     IntegrityConflictException,
     OrderNotFoundException,
 )
-from orders.models import Order, OrderStatus, OutboxEvent
+from orders.models import (
+    Order,
+    OrderSaga,
+    OrderStatus,
+    OutboxEvent,
+    ProcessedEvent,
+    SagaState,
+)
 from orders.repository import OrderRepository
 from orders.schemas import (
     OrderCreate,
@@ -29,6 +39,8 @@ from orders.schemas import (
     OrderUpdate,
 )
 from orders.settings import settings
+
+logger = structlog.get_logger('orders.service')
 
 
 def current_correlation_id() -> UUID | None:
@@ -130,11 +142,145 @@ class OrderService:
                     causation_id=created.event_id,
                 )
 
+                obj.saga_id = str(created.saga_id)
+                self._session.add(
+                    OrderSaga(
+                        saga_id=str(created.saga_id),
+                        order_id=obj.id,
+                        state=SagaState.STARTED,
+                        last_event_id=str(created.event_id),
+                    )
+                )
+
         except IntegrityError as exc:
             raise IntegrityConflictException() from exc
 
         await self._session.refresh(obj)
         return self._to_schema(obj)
+
+    async def _claim_event(self, envelope: EventEnvelope) -> bool:
+        """Отмечает событие обработанным. False — это дубль.
+
+        Вставка идёт в той же транзакции, что и смена статуса заказа,
+        поэтому «обработано» и «применено» не могут разъехаться.
+        """
+        stmt = (
+            pg_insert(ProcessedEvent)
+            .values(
+                event_id=str(envelope.event_id),
+                event_type=str(envelope.event_type),
+            )
+            .on_conflict_do_nothing(index_elements=[ProcessedEvent.event_id])
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        return result.rowcount > 0
+
+    async def _touch_saga(
+        self, envelope: EventEnvelope, order: Order, state: SagaState
+    ) -> None:
+        """Фиксирует текущий шаг саги (создаёт строку, если её ещё нет)."""
+        stmt = (
+            pg_insert(OrderSaga)
+            .values(
+                saga_id=str(envelope.saga_id),
+                order_id=order.id,
+                state=str(state),
+                last_event_id=str(envelope.event_id),
+            )
+            .on_conflict_do_update(
+                index_elements=[OrderSaga.saga_id],
+                set_={
+                    'state': str(state),
+                    'last_event_id': str(envelope.event_id),
+                    'updated_at': utcnow(),
+                },
+            )
+        )
+        await self._session.execute(stmt)
+
+    async def apply_notification_result(
+        self, envelope: EventEnvelope
+    ) -> OrderStatus | None:
+        """Завершает сагу по результату уведомления.
+
+        Успех переводит заказ PENDING → CONFIRMED, неудача запускает
+        компенсацию PENDING → CANCELLED с событием order.cancelled.
+        Повторное событие и заказ, уже находящийся в целевом статусе, —
+        no-op: сага обязана быть идемпотентной при at-least-once доставке.
+        """
+        order_id = int(
+            envelope.payload.get('order_id') or envelope.aggregate_id
+        )
+
+        async with self._session.begin():
+            if not await self._claim_event(envelope):
+                return None
+
+            obj = await self._repo.get_by_id_for_update(order_id)
+            if obj is None:
+                logger.warning(
+                    'saga.order_not_found',
+                    order_id=order_id,
+                    event_id=str(envelope.event_id),
+                )
+                return None
+
+            succeeded = envelope.event_type == EventType.ORDER_NOTIFIED
+            target = (
+                OrderStatus.CONFIRMED if succeeded else OrderStatus.CANCELLED
+            )
+
+            if obj.status == target:
+                await self._touch_saga(
+                    envelope,
+                    obj,
+                    SagaState.CONFIRMED if succeeded else SagaState.CANCELLED,
+                )
+                return target
+
+            if obj.status != OrderStatus.PENDING:
+                # Заказ уже завершён вручную — сага не спорит с оператором.
+                logger.info(
+                    'saga.transition_skipped',
+                    order_id=order_id,
+                    status=obj.status.value,
+                    event_type=str(envelope.event_type),
+                )
+                return obj.status
+
+            obj.status = target
+            if not succeeded:
+                obj.cancel_reason = str(
+                    envelope.payload.get('reason') or 'notification failed'
+                )
+            await self._session.flush()
+
+            self._add_outbox_event(
+                obj=obj,
+                event_type=(
+                    EventType.ORDER_CONFIRMED
+                    if succeeded
+                    else EventType.ORDER_CANCELLED
+                ),
+                payload_extra=(
+                    {} if succeeded else {'reason': obj.cancel_reason}
+                ),
+                saga_id=envelope.saga_id,
+                causation_id=envelope.event_id,
+            )
+            await self._touch_saga(
+                envelope,
+                obj,
+                SagaState.CONFIRMED if succeeded else SagaState.CANCELLED,
+            )
+
+        logger.info(
+            'saga.order_transitioned',
+            order_id=order_id,
+            saga_id=str(envelope.saga_id),
+            status=target.value,
+        )
+        return target
 
     async def get_by_id(self, order_id: int) -> OrderRead:
         obj = await self._repo.get_by_id(order_id)

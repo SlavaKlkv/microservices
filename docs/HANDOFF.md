@@ -65,12 +65,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(orders-history): consume envelopes with dlq and idempotency` | разбор конверта, DLQ вместо вечного poison pill, подписка на оба топика |
 | `refactor(notification): rewrite service on fastapi and sqlalchemy` | вместо голого asyncpg и рантайм-DDL — FastAPI, SQLAlchemy, Alembic, SMTP из настроек |
 | `feat(notification): publish saga result events` | дедуп, запись уведомления и outbox-строка `order.notified`/`order.notification_failed` в одной транзакции; свой outbox-воркер |
+| `feat(orders): complete saga with compensation` | сага-консьюмер на `notifications.events.v1`, `PENDING→CONFIRMED/CANCELLED`, `order_saga`, идемпотентные переходы |
 
 ## Осталось
 
-8. `feat(orders): complete saga with compensation` — консьюмер на
-   `notifications.events.v1`, переходы `PENDING→CONFIRMED/CANCELLED`, таблица
-   `order_saga`, идемпотентные переходы (повтор — no-op, не 409).
 9. `feat(redis): add idempotency fast path` — `SET NX EX` перед Postgres,
    деградация при недоступности Redis.
 10. `feat(infra): run all workers and notification service in compose` —
@@ -94,8 +92,15 @@ order.created → order.notify_requested → order.notified          → order.c
   `docker build -f services/notification/Dockerfile .`. Правки Dockerfile'ов
   не потребовались.
 - Миграции orders, orders_history и notification прогнаны на живом
-  PostgreSQL 16 (`upgrade head`, `alembic check`, `downgrade base`) — расхождений
-  моделей и миграций нет.
+  PostgreSQL 16 (`upgrade head`, `alembic check`, `downgrade base`, повторный
+  `upgrade head`) — расхождений моделей и миграций нет. Попутно исправлено:
+  downgrade миграции `5bfab7e344e7` не удалял тип `outbox_status`, из-за чего
+  повторный upgrade падал на `CREATE TYPE`.
+- Сага проверена вживую на PostgreSQL: создание заказа пишет `order.created`
+  и `order.notify_requested`, `order.notified` переводит заказ в `CONFIRMED`,
+  повтор того же события — no-op, `order.notification_failed` даёт `CANCELLED`
+  с `cancel_reason` и событием `order.cancelled`. Kafka в этой проверке не
+  участвовала — сервисный слой вызывался напрямую.
 - `ALTER TYPE … ADD VALUE` для статуса `DEAD` необратим: downgrade миграции
   не возвращает enum в прежний вид.
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита

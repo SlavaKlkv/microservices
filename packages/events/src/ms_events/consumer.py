@@ -24,7 +24,7 @@ from ms_events.envelope import EventEnvelope
 from ms_events.producer import EventProducer
 from ms_events.retry import backoff_seconds
 from ms_events.settings import KafkaSettings
-from ms_events.types import Topic
+from ms_events.types import Producer, Topic
 
 logger = structlog.get_logger('ms_events.consumer')
 
@@ -43,12 +43,16 @@ class EventConsumer:
         group_id: str,
         settings: KafkaSettings,
         handler: Handler,
+        skip_producers: Sequence[Producer] = (),
     ) -> None:
         self._service = service
         self._topics = list(topics)
         self._group_id = group_id
         self._settings = settings
         self._handler = handler
+        #: Собственные события пропускаем: подписка сервиса на свой же
+        #: топик замкнула бы сагу в бесконечный цикл.
+        self._skip_producers = {str(p) for p in skip_producers}
 
     @staticmethod
     def _dlq_topic(source_topic: str) -> str | None:
@@ -186,6 +190,14 @@ class EventConsumer:
                 value=raw_value,
                 key=key,
                 reason='invalid_envelope',
+            )
+            return
+
+        if str(envelope.producer) in self._skip_producers:
+            logger.debug(
+                'consumer.skipped_own_event',
+                event_id=str(envelope.event_id),
+                producer=str(envelope.producer),
             )
             return
 

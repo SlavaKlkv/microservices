@@ -111,4 +111,5 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_outbox_aggregate_type'), table_name='outbox')
     op.drop_index(op.f('ix_outbox_aggregate_id'), table_name='outbox')
     op.drop_table('outbox')
-    # ### end Alembic commands ###
+    # Без этого тип остаётся в БД и повторный upgrade падает на CREATE TYPE.
+    op.execute('DROP TYPE IF EXISTS outbox_status')
