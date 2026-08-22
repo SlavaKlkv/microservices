@@ -95,10 +95,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(infra): run all workers and notification service in compose` | `postgres-notifications`, notification-service, 5 воркеров и консьюмеров отдельными сервисами, one-shot `*-migrate` и `kafka-init`, mailhog, `/notifications/` в nginx |
 | `feat(observability): fix grafana provisioning and add saga metrics` | datasource-манифест вместо scrape-конфига, монтирование provisioning, метрики outbox/консьюмеров/DLQ/длительности саги, дашборд саги |
 | `test: cover services and saga with pytest` | 92 теста: unit на конверт/DLQ/идемпотентность/метрики, integration на живом Postgres (сага, компенсация, миграции), e2e под маркером |
+| `ci: add github actions pipeline` | lint/mypy, тесты на postgres-сервисе, сборка четырёх образов матрицей, e2e на поднятом compose |
 
 ## Осталось
 
-13. `ci: add github actions pipeline` — lint, typecheck, test, migrations, build, e2e.
 14. `docs: document saga architecture and commands` — полноценный корневой
     README с mermaid-диаграммой саги, README сервисов, `docs/adr/`.
 
@@ -142,6 +142,12 @@ order.created → order.notify_requested → order.notified          → order.c
   (`apiVersion: 1` + `datasources`), дашборд — валидный JSON на 11
   панелей, метрики регистрируются и отдаются через `/metrics`
   (дымовой прогон `generate_latest` + поднятый сервер).
+- Пайплайн CI **не прогонялся**: workflow нельзя запустить из сессии без
+  docker и без пуша в GitHub. Проверено то, что проверяемо: YAML
+  разбирается, четыре job'а на месте, а шаги lint и test — это ровно те
+  команды, которые здесь отработали зелёными, включая
+  `UV_FROZEN=1 uv sync --all-packages`. Первый реальный прогон job'ов
+  build и e2e произойдёт на первом же пуше.
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита
   дедупликации, то есть возможен сценарий «записали, но не отправили».
   Выбор осознанный — лучше не отправить, чем отправить дважды.
