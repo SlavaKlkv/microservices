@@ -1,5 +1,5 @@
 .env*
-!.env.example
+!.env*.example
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
