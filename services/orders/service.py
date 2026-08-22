@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Iterable, cast
 from uuid import UUID, uuid4
 
@@ -17,6 +18,7 @@ from ms_events import (
     outbox_values,
     utcnow,
 )
+from ms_events.metrics import SAGA_COMPLETED, SAGA_DURATION
 from orders.core.exceptions import (
     IntegrityConflictException,
     OrderNotFoundException,
@@ -177,8 +179,11 @@ class OrderService:
 
     async def _touch_saga(
         self, envelope: EventEnvelope, order: Order, state: SagaState
-    ) -> None:
-        """Фиксирует текущий шаг саги (создаёт строку, если её ещё нет)."""
+    ) -> datetime | None:
+        """Фиксирует текущий шаг саги (создаёт строку, если её ещё нет).
+
+        Возвращает момент начала саги — по нему считается её длительность.
+        """
         stmt = (
             pg_insert(OrderSaga)
             .values(
@@ -195,8 +200,24 @@ class OrderService:
                     'updated_at': utcnow(),
                 },
             )
+            .returning(OrderSaga.started_at)
         )
-        await self._session.execute(stmt)
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    @staticmethod
+    def _observe_saga(outcome: str, started_at: datetime | None) -> None:
+        """Записывает завершение саги в метрики.
+
+        Вызывается только из ветки реального перехода статуса: она
+        отрабатывает ровно один раз на сагу, поэтому гистограмма не
+        накручивается повторами событий.
+        """
+        SAGA_COMPLETED.labels(outcome=outcome).inc()
+        if started_at is None:
+            return
+        SAGA_DURATION.labels(outcome=outcome).observe(
+            max((utcnow() - started_at).total_seconds(), 0.0)
+        )
 
     async def apply_notification_result(
         self, envelope: EventEnvelope
@@ -268,10 +289,13 @@ class OrderService:
                 saga_id=envelope.saga_id,
                 causation_id=envelope.event_id,
             )
-            await self._touch_saga(
+            started_at = await self._touch_saga(
                 envelope,
                 obj,
                 SagaState.CONFIRMED if succeeded else SagaState.CANCELLED,
+            )
+            self._observe_saga(
+                'completed' if succeeded else 'compensated', started_at
             )
 
         logger.info(

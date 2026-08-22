@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ms_events.db import OutboxStatus
 from ms_events.envelope import utcnow
+from ms_events.metrics import (
+    OUTBOX_BATCH,
+    OUTBOX_DEAD,
+    OUTBOX_FAILED,
+    OUTBOX_PUBLISHED,
+)
 from ms_events.producer import EventProducer
 from ms_events.retry import backoff_seconds
 from ms_events.settings import KafkaSettings
@@ -58,6 +64,9 @@ class OutboxWorker:
         except Exception:
             logger.exception('outbox.dlq_publish_failed', outbox_id=row.id)
         else:
+            OUTBOX_DEAD.labels(
+                service=self._service, event_type=row.event_type
+            ).inc()
             logger.warning(
                 'outbox.moved_to_dlq',
                 outbox_id=row.id,
@@ -73,6 +82,9 @@ class OutboxWorker:
             attempts = int(row.attempts or 0) + 1
             row.attempts = attempts
             row.last_error = f'{type(exc).__name__}: {exc}'
+            OUTBOX_FAILED.labels(
+                service=self._service, event_type=row.event_type
+            ).inc()
 
             if attempts >= int(row.max_attempts):
                 row.status = OutboxStatus.DEAD
@@ -105,6 +117,11 @@ class OutboxWorker:
             row.sent_at = utcnow()
             row.last_error = None
             row.next_retry_at = None
+            OUTBOX_PUBLISHED.labels(
+                service=self._service,
+                event_type=row.event_type,
+                topic=row.topic,
+            ).inc()
             logger.info(
                 'outbox.published',
                 outbox_id=row.id,
@@ -136,6 +153,7 @@ class OutboxWorker:
         )
 
         rows = list((await session.execute(stmt)).scalars().all())
+        OUTBOX_BATCH.labels(service=self._service).set(len(rows))
         if not rows:
             return 0
 

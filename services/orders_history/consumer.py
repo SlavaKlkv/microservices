@@ -17,6 +17,7 @@ from ms_events import (
     Topic,
     run_consumer,
     setup_logging,
+    start_metrics_server,
 )
 from orders_history.core.db import SessionLocal
 from orders_history.schemas import HistoryEventIn
@@ -82,6 +83,9 @@ async def consume(stop_event: asyncio.Event | None = None) -> None:
 
 def main() -> None:
     setup_logging('orders-history-consumer', level=settings.LOG_LEVEL)
+    start_metrics_server(
+        settings.METRICS_PORT, service='orders-history-consumer'
+    )
     try:
         asyncio.run(run_consumer(build_consumer()))
     except KeyboardInterrupt:

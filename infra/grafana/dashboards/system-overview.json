@@ -1,18 +1,27 @@
 {
   "id": null,
   "uid": "system-overview",
-  "title": "Microservices System Overview",
+  "title": "Microservices Saga Overview",
   "timezone": "browser",
   "schemaVersion": 38,
   "version": 1,
   "refresh": "10s",
-  "tags": ["microservices", "infra", "prometheus"],
+  "tags": [
+    "microservices",
+    "saga",
+    "prometheus"
+  ],
   "panels": [
     {
       "type": "stat",
       "title": "Prometheus status",
       "id": 1,
-      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "up{job=\"prometheus\"}",
@@ -20,7 +29,12 @@
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["last"], "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
         "orientation": "horizontal"
       }
     },
@@ -28,7 +42,12 @@
       "type": "stat",
       "title": "Nginx status",
       "id": 2,
-      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
       "targets": [
         {
           "expr": "up{job=\"nginx\"}",
@@ -36,23 +55,38 @@
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["last"], "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
         "orientation": "horizontal"
       }
     },
     {
       "type": "stat",
-      "title": "Application services UP",
+      "title": "API services UP",
       "id": 3,
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
       "targets": [
         {
-          "expr": "sum(up{job=~\"auth-service|orders-service|orders-history-service\"})",
+          "expr": "sum(up{job=\"api\"})",
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["last"], "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
         "orientation": "horizontal"
       }
     },
@@ -60,10 +94,203 @@
       "type": "timeseries",
       "title": "Prometheus scrape duration",
       "id": 4,
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
       "targets": [
         {
           "expr": "scrape_duration_seconds",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Workers UP",
+      "id": 5,
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(up{job=\"workers\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "В DLQ за сутки",
+      "description": "В норме ноль. Любое ненулевое значение — событие, которое система не смогла обработать и отложила в сторону.",
+      "id": 6,
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(consumer_dlq_total[24h])) + sum(increase(outbox_events_dead_total[24h]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Незавершённые строки outbox",
+      "description": "Размер последней выбранной воркером пачки. Стабильно упирается в OUTBOX_BATCH_SIZE — воркер не успевает или Kafka недоступна.",
+      "id": 7,
+      "gridPos": {
+        "x": 16,
+        "y": 12,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(outbox_batch_size)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false
+        },
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Сага: завершения в секунду",
+      "id": 8,
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(saga_completed_total[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Длительность саги (p50 / p95)",
+      "description": "От создания заказа до терминального статуса. Растущий p95 — саги застревают между шагами.",
+      "id": 9,
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(saga_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(saga_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox: публикации и отказы",
+      "id": 10,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(outbox_events_published_total[5m]))",
+          "legendFormat": "published {{service}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (service) (rate(outbox_publish_failures_total[5m]))",
+          "legendFormat": "failed {{service}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Консьюмеры: события по исходу",
+      "description": "outcome=duplicate — работа быстрого пути идемпотентности на Redis, это норма при at-least-once доставке.",
+      "id": 11,
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, outcome) (rate(consumer_events_total[5m]))",
+          "legendFormat": "{{service}} {{outcome}}",
           "refId": "A"
         }
       ]

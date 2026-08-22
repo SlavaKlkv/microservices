@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import time
 from collections.abc import Awaitable, Callable, Sequence
 
 import structlog
@@ -22,6 +23,11 @@ from pydantic import ValidationError
 
 from ms_events.envelope import EventEnvelope
 from ms_events.idempotency import IdempotencyCache
+from ms_events.metrics import (
+    CONSUMER_DLQ,
+    CONSUMER_EVENTS,
+    CONSUMER_HANDLER_DURATION,
+)
 from ms_events.producer import EventProducer
 from ms_events.retry import backoff_seconds
 from ms_events.settings import KafkaSettings, RedisSettings
@@ -62,6 +68,14 @@ class EventConsumer:
             else None
         )
 
+    def _count(self, *, event_type: str, topic: str, outcome: str) -> None:
+        CONSUMER_EVENTS.labels(
+            service=self._service,
+            event_type=event_type,
+            topic=topic,
+            outcome=outcome,
+        ).inc()
+
     @staticmethod
     def _dlq_topic(source_topic: str) -> str | None:
         try:
@@ -91,6 +105,9 @@ class EventConsumer:
         except Exception:
             logger.exception('consumer.dlq_publish_failed', topic=dlq)
         else:
+            CONSUMER_DLQ.labels(
+                service=self._service, topic=dlq, reason=reason
+            ).inc()
             logger.warning(
                 'consumer.moved_to_dlq',
                 topic=dlq,
@@ -110,13 +127,20 @@ class EventConsumer:
         max_attempts = max(1, self._settings.CONSUMER_MAX_ATTEMPTS)
 
         event_id = str(envelope.event_id)
+        event_type = str(envelope.event_type)
         if self._idempotency is not None and not await self._idempotency.claim(
             event_id
         ):
+            self._count(
+                event_type=event_type,
+                topic=source_topic,
+                outcome='duplicate',
+            )
             logger.debug('consumer.duplicate_skipped', event_id=event_id)
             return
 
         for attempt in range(1, max_attempts + 1):
+            started = time.perf_counter()
             try:
                 await self._handler(envelope, source_topic)
             except asyncio.CancelledError:
@@ -127,6 +151,11 @@ class EventConsumer:
                     event_id=str(envelope.event_id),
                     event_type=str(envelope.event_type),
                     attempt=attempt,
+                )
+                self._count(
+                    event_type=event_type,
+                    topic=source_topic,
+                    outcome='failed',
                 )
                 # Заявку снимаем: в Postgres обработка не закоммитилась,
                 # иначе повтор был бы отброшен как «дубль».
@@ -149,6 +178,14 @@ class EventConsumer:
                     )
                 )
             else:
+                CONSUMER_HANDLER_DURATION.labels(
+                    service=self._service, event_type=event_type
+                ).observe(time.perf_counter() - started)
+                self._count(
+                    event_type=event_type,
+                    topic=source_topic,
+                    outcome='processed',
+                )
                 return
 
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
@@ -207,6 +244,11 @@ class EventConsumer:
             logger.exception(
                 'consumer.invalid_envelope', source_topic=source_topic
             )
+            self._count(
+                event_type='unknown',
+                topic=source_topic,
+                outcome='invalid',
+            )
             await self._to_dlq(
                 producer,
                 source_topic=source_topic,
@@ -217,6 +259,11 @@ class EventConsumer:
             return
 
         if str(envelope.producer) in self._skip_producers:
+            self._count(
+                event_type=str(envelope.event_type),
+                topic=source_topic,
+                outcome='skipped_own',
+            )
             logger.debug(
                 'consumer.skipped_own_event',
                 event_id=str(envelope.event_id),

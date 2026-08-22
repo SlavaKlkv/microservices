@@ -3,7 +3,6 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  # Prometheus self
   - job_name: "prometheus"
     static_configs:
       - targets: ["prometheus:9090"]
@@ -14,17 +13,42 @@ scrape_configs:
     static_configs:
       - targets: ["nginx:80"]
 
-  - job_name: "auth-service"
+  # ----------------------
+  # HTTP API: метрики отдаёт instrumentator FastAPI на порту сервиса.
+  # ----------------------
+  - job_name: "api"
     metrics_path: /metrics
     static_configs:
       - targets: ["auth-service:8000"]
-
-  - job_name: "orders-service"
-    metrics_path: /metrics
-    static_configs:
+        labels: { service: auth }
       - targets: ["orders-service:8000"]
+        labels: { service: orders }
+      - targets: ["orders-history-service:8000"]
+        labels: { service: orders-history }
+      - targets: ["notification-service:8000"]
+        labels: { service: notification }
 
-  - job_name: "orders-history-service"
+  # ----------------------
+  # Воркеры и консьюмеры HTTP не слушают, у них отдельный сервер метрик
+  # на METRICS_PORT. Здесь живут метрики outbox, DLQ и длительности саги.
+  # ----------------------
+  - job_name: "workers"
     metrics_path: /metrics
     static_configs:
-      - targets: ["orders-history-service:8000"]
+      - targets: ["orders-outbox-worker:9100"]
+        labels: { service: orders, component: outbox-worker }
+      - targets: ["notification-outbox-worker:9100"]
+        labels: { service: notification, component: outbox-worker }
+      - targets: ["orders-consumer:9100"]
+        labels: { service: orders, component: saga-consumer }
+      - targets: ["orders-history-consumer:9100"]
+        labels: { service: orders-history, component: consumer }
+      - targets: ["notification-consumer:9100"]
+        labels: { service: notification, component: consumer }
+
+  # ----------------------
+  # Kafka (JMX / exporter будет добавлен позже)
+  # ----------------------
+  # - job_name: "kafka"
+  #   static_configs:
+  #     - targets: ["kafka:9092"]

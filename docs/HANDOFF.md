@@ -57,6 +57,11 @@ order.created → order.notify_requested → order.notified          → order.c
   первый подписавшийся консьюмер создаёт топик на одну партицию, и
   параллелизм по `order_id` теряется навсегда. Основные топики — по
   `KAFKA_TOPIC_PARTITIONS` партиций, DLQ — одна.
+- **Метрики воркеров живут на отдельном порту.** API-сервисы отдают
+  `/metrics` через instrumentator FastAPI, а воркеры и консьюмеры HTTP не
+  слушают вообще — им поднимается отдельный сервер на `METRICS_PORT`.
+  Иначе вся асинхронная половина системы, ровно та, где копятся отказы,
+  остаётся невидимой для Prometheus.
 - **`known-first-party` зафиксирован явно** в конфиге ruff: пакеты сервисов
   лежат в `services/<name>`, а импортируются коротким именем, и разные
   версии ruff классифицируют их по-разному.
@@ -80,12 +85,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(redis): add idempotency fast path` | `SET NX EX 24h` перед Postgres во всех консьюмерах, снятие заявки при неудаче, деградация без Redis |
 | `style: pin isort first-party packages` | `known-first-party` в конфиге ruff, порядок импортов приведён к нему во всём репо |
 | `feat(infra): run all workers and notification service in compose` | `postgres-notifications`, notification-service, 5 воркеров и консьюмеров отдельными сервисами, one-shot `*-migrate` и `kafka-init`, mailhog, `/notifications/` в nginx |
+| `feat(observability): fix grafana provisioning and add saga metrics` | datasource-манифест вместо scrape-конфига, монтирование provisioning, метрики outbox/консьюмеров/DLQ/длительности саги, дашборд саги |
 
 ## Осталось
 
-11. `feat(observability): fix grafana provisioning and add saga metrics` —
-    datasource-манифест вместо ошибочного scrape-конфига, монтирование
-    provisioning, метрики outbox/консьюмеров/DLQ/длительности саги.
 12. `test: cover services and saga with pytest` — unit, integration на
     testcontainers, e2e под маркером `e2e`.
 13. `ci: add github actions pipeline` — lint, typecheck, test, migrations, build, e2e.
@@ -124,6 +127,12 @@ order.created → order.notify_requested → order.notified          → order.c
 - `orders_history` тянул `psycopg2` из исходников, остальные сервисы —
   `psycopg2-binary`. Из-за этого `uv sync --all-packages` падал на машинах
   без `libpq-dev`. Выровнено на `psycopg2-binary`, `uv.lock` пересобран.
+- Дашборд Grafana и scrape-конфиг Prometheus **не проверены на живых
+  контейнерах** — тот же docker-демон. Проверено: YAML обоих файлов
+  разбирается, datasource-манифест имеет корректную структуру
+  (`apiVersion: 1` + `datasources`), дашборд — валидный JSON на 11
+  панелей, метрики регистрируются и отдаются через `/metrics`
+  (дымовой прогон `generate_latest` + поднятый сервер).
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита
   дедупликации, то есть возможен сценарий «записали, но не отправили».
   Выбор осознанный — лучше не отправить, чем отправить дважды.
@@ -141,6 +150,11 @@ uv run ruff check services packages && uv run ruff format --check services packa
 uv run mypy packages services
 docker compose build && docker compose up -d --wait
 ```
+
+Наблюдаемость: Prometheus на `${PROMETHEUS_PORT}` (таргеты — `api` и
+`workers`), Grafana на `${GRAFANA_PORT}`, дашборд «Microservices Saga
+Overview» появляется сам через провижининг. Ключевая панель — «В DLQ за
+сутки»: в норме там ноль.
 
 `docker compose config --quiet` валидирует файл без запущенного демона.
 `*-migrate` и `kafka-init` — one-shot job'ы: в `docker compose ps` они

@@ -6,7 +6,12 @@
 
 import asyncio
 
-from ms_events import OutboxWorker, run_worker, setup_logging
+from ms_events import (
+    OutboxWorker,
+    run_worker,
+    setup_logging,
+    start_metrics_server,
+)
 from notification.core.db import SessionLocal
 from notification.models import OutboxEvent
 from notification.settings import settings
@@ -27,6 +32,9 @@ async def run_outbox_loop(stop_event: asyncio.Event | None = None) -> None:
 
 def main() -> None:
     setup_logging('notification-outbox-worker', level=settings.LOG_LEVEL)
+    start_metrics_server(
+        settings.METRICS_PORT, service='notification-outbox-worker'
+    )
     try:
         asyncio.run(run_worker(build_worker()))
     except KeyboardInterrupt:

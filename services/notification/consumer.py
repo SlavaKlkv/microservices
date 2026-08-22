@@ -17,6 +17,7 @@ from ms_events import (
     Topic,
     run_consumer,
     setup_logging,
+    start_metrics_server,
 )
 from notification.core.db import SessionLocal
 from notification.service import NotificationService
@@ -69,6 +70,9 @@ async def consume(stop_event: asyncio.Event | None = None) -> None:
 
 def main() -> None:
     setup_logging('notification-consumer', level=settings.LOG_LEVEL)
+    start_metrics_server(
+        settings.METRICS_PORT, service='notification-consumer'
+    )
     try:
         asyncio.run(run_consumer(build_consumer()))
     except KeyboardInterrupt:
