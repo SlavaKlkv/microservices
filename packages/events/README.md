@@ -29,11 +29,11 @@
 ```python
 EventEnvelope(
     event_type=EventType.ORDER_CREATED,
-    saga_id=saga_id,          # общий на всю цепочку
-    correlation_id=req_id,    # X-Request-ID исходного запроса
-    causation_id=parent_id,   # event_id события-причины
+    saga_id=saga_id,  # общий на всю цепочку
+    correlation_id=req_id,  # X-Request-ID исходного запроса
+    causation_id=parent_id,  # event_id события-причины
     producer=Producer.ORDERS,
-    aggregate_id='42',        # он же ключ партиционирования
+    aggregate_id='42',  # он же ключ партиционирования
     payload={...},
 )
 ```
