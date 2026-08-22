@@ -18,6 +18,7 @@ class Notification(Base):
 
     def __repr__(self):
         return (
-            f'<Notification(event_id={self.event_id}, event_type={self.event_type},'
+            f'<Notification(event_id={self.event_id}, '
+            f'event_type={self.event_type},'
             f'order_id={self.order_id}, user_id={self.user_id})>'
         )

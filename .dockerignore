@@ -38,3 +38,8 @@ COMMANDS.md
 # git-репозиторий
 .git
 .gitignore
+
+# артефакты воркспейса
+.ruff_cache/
+.mypy_cache/
+services/*/.venv

@@ -1,10 +1,11 @@
 [project]
-name = "microservices.auth"
+name = "microservices-auth"
 version = "0.1.0"
-description = "Add your description here"
+description = "Микросервис auth"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "ms-events",
     "aiokafka>=0.12.0",
     "alembic>=1.17.2",
     "asyncpg>=0.31.0",
@@ -24,18 +25,8 @@ dependencies = [
     "greenlet>=3.3.0",
 ]
 
-[tool.ruff]
-line-length = 79
-
-[tool.ruff.lint]
-extend-select = ["I", "E501"]
-
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
-
-[tool.mypy]
-python_version = "3.13"
+[tool.uv]
+package = false
 
 [dependency-groups]
 dev = [

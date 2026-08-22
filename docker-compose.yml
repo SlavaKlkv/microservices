@@ -151,7 +151,9 @@ services:
       - grafana_data:/var/lib/grafana
 
   auth-service:
-    build: ./services/auth
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
     container_name: auth-service
     env_file:
       - ./services/auth/.env.docker
@@ -169,7 +171,9 @@ services:
       - microservices_net
 
   orders-service:
-     build: ./services/orders
+     build:
+       context: .
+       dockerfile: services/orders/Dockerfile
      container_name: orders-service
      env_file:
        - ./services/orders/.env.docker
@@ -189,7 +193,9 @@ services:
        - microservices_net
 
   orders-history-service:
-     build: ./services/orders_history
+     build:
+       context: .
+       dockerfile: services/orders_history/Dockerfile
      container_name: orders-history-service
      env_file:
        - ./services/orders_history/.env.docker

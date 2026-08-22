@@ -86,7 +86,7 @@ def _extract_event(data: dict[str, Any]) -> dict[str, Any]:
         data.get('event_type') or data.get('type') or payload.get('event_type')
     )
 
-    # event_id: предпочтительно уникальный UUID/строка из outbox; иначе fallback.
+    # event_id: уникальный UUID/строка из outbox, иначе fallback.
     event_id = (
         data.get('event_id')
         or payload.get('event_id')
@@ -127,9 +127,12 @@ async def _ensure_schema(conn: asyncpg.Connection) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
 
-        CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notification_db (user_id);
-        CREATE INDEX IF NOT EXISTS ix_notifications_order_id ON notification_db (order_id);
-        CREATE INDEX IF NOT EXISTS ix_notifications_event_type ON notification_db (event_type);
+        CREATE INDEX IF NOT EXISTS ix_notifications_user_id
+            ON notification_db (user_id);
+        CREATE INDEX IF NOT EXISTS ix_notifications_order_id
+            ON notification_db (order_id);
+        CREATE INDEX IF NOT EXISTS ix_notifications_event_type
+            ON notification_db (event_type);
         """
     )
 
@@ -151,17 +154,19 @@ async def _save_notification(
 ) -> bool:
     """Сохраняет уведомление в БД.
 
-    Возвращает True, если вставка произошла, и False если событие уже было обработано.
+    Возвращает True, если вставка произошла, и False, если событие
+    уже было обработано.
     """
     event_id = event.get('event_id')
     if not event_id:
         raise ValueError('event_id is required for idempotency')
 
     async with pool.acquire() as conn:
-        # ON CONFLICT — ключевой момент: consumer может получать одно событие повторно.
+        # ON CONFLICT: consumer может получать одно событие повторно.
         res = await conn.execute(
             """
-            INSERT INTO notification_db (event_id, event_type, order_id, user_id, payload)
+            INSERT INTO notification_db
+                (event_id, event_type, order_id, user_id, payload)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (event_id) DO NOTHING;
             """,
@@ -176,7 +181,8 @@ async def _save_notification(
     if res.endswith(' 1'):
         user_email = event.get('user_email')
         if user_email:
-            message = f'Your order {event.get("order_id")} has been processed successfully.'
+            order_id = event.get('order_id')
+            message = f'Your order {order_id} has been processed.'
             await send_email_notification(user_email, message)
 
     # asyncpg возвращает строку вида "INSERT 0 1" или "INSERT 0 0"
@@ -194,7 +200,7 @@ async def run_consumer(settings: Settings) -> None:
         try:
             loop.add_signal_handler(sig, _request_stop)
         except NotImplementedError:
-            # На некоторых платформах/средах add_signal_handler может быть недоступен.
+            # На части платформ add_signal_handler недоступен.
             pass
 
     # DB

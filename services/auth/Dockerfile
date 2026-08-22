@@ -2,7 +2,8 @@ FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
 WORKDIR /app
 
@@ -12,13 +13,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock* ./
+RUN pip install --no-cache-dir uv
 
-RUN pip install --no-cache-dir uv && \
-    uv sync --frozen --no-dev --no-install-project
+# Сначала — только манифесты воркспейса: слой с зависимостями кэшируется
+# и не пересобирается при правках кода сервиса.
+COPY pyproject.toml uv.lock ./
+COPY packages/events/pyproject.toml packages/events/README.md ./packages/events/
+COPY services/auth/pyproject.toml ./services/auth/
 
-COPY . ./auth
+RUN uv sync --frozen --no-dev --package microservices-auth --no-install-workspace
 
-RUN uv sync --frozen --no-dev
+COPY packages/events ./packages/events
+RUN uv sync --frozen --no-dev --package microservices-auth
+
+COPY services/auth ./auth
 
 CMD ["uv", "run", "uvicorn", "auth.main:app", "--host", "0.0.0.0", "--port", "8000"]

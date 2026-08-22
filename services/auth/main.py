@@ -1,10 +1,14 @@
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from ms_events import setup_logging
+from ms_events.middleware import RequestIdMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware import Middleware
 
+from auth.core.db import db_ping
 from auth.core.exceptions import init_exception_handlers
 from auth.core.middleware.exc_middleware import DBErrorMiddleware
 from auth.core.middleware.jwt_middleware import JWTAuthMiddleware
@@ -14,6 +18,7 @@ from auth.routers.users_router import users_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging('auth', level=os.getenv('LOG_LEVEL', 'INFO'))
     yield
 
 
@@ -25,6 +30,7 @@ middleware = [
         allow_methods=['*'],
         allow_headers=['*'],
     ),
+    Middleware(RequestIdMiddleware),  # type: ignore[arg-type]
     Middleware(DBErrorMiddleware),  # type: ignore[arg-type]
     Middleware(JWTAuthMiddleware),  # type: ignore[arg-type]
 ]
@@ -57,3 +63,14 @@ app.include_router(api_v1)
 @app.get('/health', tags=['system'])
 def health():
     return {'status': 'ok'}
+
+
+@app.get('/ready', tags=['system'])
+async def ready():
+    """Готовность сервиса: БД доступна."""
+    if not await db_ping():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='database is not available',
+        )
+    return {'status': 'ready'}

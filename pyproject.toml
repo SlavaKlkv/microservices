@@ -1,0 +1,41 @@
+[project]
+name = "microservices"
+version = "0.1.0"
+description = "Микросервисы заказов: сага-хореография на Kafka"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*", "services/*"]
+
+[tool.uv.sources]
+ms-events = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "ruff>=0.14.9",
+]
+
+[tool.ruff]
+line-length = 79
+extend-exclude = ["*/alembic/versions/*"]
+
+[tool.ruff.lint]
+# Явный набор: стабилен между версиями ruff.
+select = ["E4", "E7", "E9", "E501", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ms_events.*"
+strict = true
