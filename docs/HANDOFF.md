@@ -64,11 +64,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `feat(orders): publish events with a versioned envelope` | `EventEnvelope` в outbox, `saga_id`/`topic`/`max_attempts`, статус `DEAD`, DLQ |
 | `feat(orders-history): consume envelopes with dlq and idempotency` | разбор конверта, DLQ вместо вечного poison pill, подписка на оба топика |
 | `refactor(notification): rewrite service on fastapi and sqlalchemy` | вместо голого asyncpg и рантайм-DDL — FastAPI, SQLAlchemy, Alembic, SMTP из настроек |
+| `feat(notification): publish saga result events` | дедуп, запись уведомления и outbox-строка `order.notified`/`order.notification_failed` в одной транзакции; свой outbox-воркер |
 
 ## Осталось
 
-7. `feat(notification): publish saga result events` — публикация
-   `order.notified` / `order.notification_failed` через собственный outbox.
 8. `feat(orders): complete saga with compensation` — консьюмер на
    `notifications.events.v1`, переходы `PENDING→CONFIRMED/CANCELLED`, таблица
    `order_saga`, идемпотентные переходы (повтор — no-op, не 409).
@@ -89,9 +88,14 @@ order.created → order.notify_requested → order.notified          → order.c
 
 ## Открытые риски
 
-- **Сборка образов после перехода на uv workspace проверена не была** — переход
-  делался локально, `docker compose build` прервали. Это первое, что нужно
-  прогнать на машине с docker; при падении чинить Dockerfile'ы отдельным коммитом.
+- ~~Сборка образов после перехода на uv workspace не проверена~~ — **снято**:
+  `docker compose build` на коммите `b8c859c` прошёл для auth, orders и
+  orders-history, образ notification собран отдельной командой
+  `docker build -f services/notification/Dockerfile .`. Правки Dockerfile'ов
+  не потребовались.
+- Миграции orders, orders_history и notification прогнаны на живом
+  PostgreSQL 16 (`upgrade head`, `alembic check`, `downgrade base`) — расхождений
+  моделей и миграций нет.
 - `ALTER TYPE … ADD VALUE` для статуса `DEAD` необратим: downgrade миграции
   не возвращает enum в прежний вид.
 - Дубли уведомлений при at-least-once: отправка письма идёт после коммита

@@ -3,7 +3,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 import structlog
-from ms_events import EventEnvelope
+from ms_events import (
+    EventEnvelope,
+    EventType,
+    Producer,
+    Topic,
+    outbox_values,
+)
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import CursorResult
@@ -13,9 +19,11 @@ from notification.mailer import NotificationSendError, send_email
 from notification.models import (
     Notification,
     NotificationStatus,
+    OutboxEvent,
     ProcessedEvent,
 )
 from notification.schemas import NotificationRead, NotificationsList
+from notification.settings import settings
 
 logger = structlog.get_logger('notification.service')
 
@@ -110,10 +118,50 @@ class NotificationService:
                 error=error,
             )
             self._session.add(notification)
+
+            # Результат саги уезжает через собственный outbox: запись
+            # уведомления и факт его публикации коммитятся вместе.
+            self._add_result_event(envelope, notification)
             await self._session.flush()
 
         await self._session.refresh(notification)
         return notification
+
+    def _add_result_event(
+        self, source: EventEnvelope, notification: Notification
+    ) -> EventEnvelope:
+        """Кладёт в outbox order.notified либо order.notification_failed."""
+        succeeded = notification.status is NotificationStatus.SENT
+        event_type = (
+            EventType.ORDER_NOTIFIED
+            if succeeded
+            else EventType.ORDER_NOTIFICATION_FAILED
+        )
+        payload: dict[str, Any] = {
+            'order_id': notification.order_id,
+            'user_id': notification.user_id,
+            'channel': notification.channel,
+            'recipient': notification.recipient,
+        }
+        if not succeeded:
+            payload['reason'] = notification.error
+
+        result = EventEnvelope.caused_by(
+            source,
+            event_type=event_type,
+            producer=Producer.NOTIFICATION,
+            payload=payload,
+        )
+        self._session.add(
+            OutboxEvent(
+                **outbox_values(
+                    result,
+                    topic=str(Topic.NOTIFICATIONS),
+                    max_attempts=settings.OUTBOX_MAX_ATTEMPTS,
+                )
+            )
+        )
+        return result
 
     async def list_notifications(
         self,
