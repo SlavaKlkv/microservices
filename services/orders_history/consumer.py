@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -62,15 +63,17 @@ async def handle_message(session: AsyncSession, raw: dict[str, Any]) -> None:
         )
 
 
-async def consume() -> None:
+async def consume(stop_event: asyncio.Event | None = None) -> None:
     """
     Kafka consumer для сервиса истории заказов.
     """
+    stop_event = stop_event or asyncio.Event()
     consumer = AIOKafkaConsumer(
         KAFKA_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=KAFKA_GROUP_ID,
         enable_auto_commit=False,
+        auto_offset_reset='earliest',
         value_deserializer=lambda v: json.loads(v.decode('utf-8')),
     )
 
@@ -84,6 +87,9 @@ async def consume() -> None:
 
     try:
         async for msg in consumer:
+            if stop_event.is_set():
+                break
+
             logger.debug(
                 'kafka_message_received',
                 partition=msg.partition,
@@ -103,7 +109,23 @@ async def consume() -> None:
                     # commit НЕ делаем — сообщение будет прочитано повторно
     finally:
         await consumer.stop()
+        logger.info('orders_history_consumer_stopped')
+
+
+async def _amain() -> None:
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop_event.set)
+    await consume(stop_event)
+
+
+def main() -> None:
+    try:
+        asyncio.run(_amain())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == '__main__':
-    asyncio.run(consume())
+    main()
