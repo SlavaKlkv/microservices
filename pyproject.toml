@@ -28,6 +28,18 @@ extend-exclude = ["*/alembic/versions/*"]
 # Явный набор: стабилен между версиями ruff.
 select = ["E4", "E7", "E9", "E501", "F", "I"]
 
+# Пакеты сервисов лежат в services/<name>, а импортируются по короткому
+# имени. Без явного списка ruff относит их к сторонним по-разному в разных
+# версиях, и порядок импортов «плывёт» между машинами и CI.
+[tool.ruff.lint.isort]
+known-first-party = [
+    "ms_events",
+    "auth",
+    "orders",
+    "orders_history",
+    "notification",
+]
+
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "space"

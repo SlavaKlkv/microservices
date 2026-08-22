@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from orders_history.models import OrderHistory, ProcessedEvent
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from orders_history.models import OrderHistory, ProcessedEvent
 
 
 class OrderHistoryRepository:

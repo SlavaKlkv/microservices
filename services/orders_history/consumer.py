@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+
 from ms_events import (
     EventConsumer,
     EventEnvelope,
@@ -17,7 +18,6 @@ from ms_events import (
     run_consumer,
     setup_logging,
 )
-
 from orders_history.core.db import SessionLocal
 from orders_history.schemas import HistoryEventIn
 from orders_history.service import HistoryService

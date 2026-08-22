@@ -3,11 +3,11 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from ms_events import setup_logging
-from ms_events.middleware import RequestIdMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware import Middleware
 
+from ms_events import setup_logging
+from ms_events.middleware import RequestIdMiddleware
 from notification.core.db import db_ping
 from notification.core.exceptions import init_exception_handlers
 from notification.router import notifications_router

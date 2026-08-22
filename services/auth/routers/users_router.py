@@ -1,3 +1,6 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from auth.core.db import get_session
 from auth.core.security import current_subject
 from auth.schemas.users_schemas import (
@@ -8,8 +11,6 @@ from auth.schemas.users_schemas import (
     UserUpdate,
 )
 from auth.service.users_service import UserService
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
 users_router = APIRouter(
     prefix='/users',

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from fastapi import status
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
 from auth.core.exceptions import (
     IntegrityConflictException,
     UserAlreadyExistsException,
     UserNotFoundException,
     _json_error,
 )
-from fastapi import status
-from sqlalchemy.exc import DBAPIError, IntegrityError
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 
 
 class DBErrorMiddleware(BaseHTTPMiddleware):

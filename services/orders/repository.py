@@ -1,6 +1,7 @@
-from orders.models import Order
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from orders.models import Order
 
 
 class OrderRepository:

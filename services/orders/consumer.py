@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+
 from ms_events import (
     EventConsumer,
     EventEnvelope,
@@ -20,7 +21,6 @@ from ms_events import (
     run_consumer,
     setup_logging,
 )
-
 from orders.core.db import SessionLocal
 from orders.service import OrderService
 from orders.settings import settings

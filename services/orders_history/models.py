@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from ms_events import ProcessedEventMixin
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -14,6 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ms_events import ProcessedEventMixin
 from orders_history.core.db import Base
 
 

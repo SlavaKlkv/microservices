@@ -2,8 +2,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from ms_events import setup_logging
-from ms_events.middleware import RequestIdMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware import Middleware
 
@@ -14,6 +12,8 @@ from auth.core.middleware.jwt_middleware import JWTAuthMiddleware
 from auth.routers.auth_router import auth_router
 from auth.routers.users_router import users_router
 from auth.settings import settings
+from ms_events import setup_logging
+from ms_events.middleware import RequestIdMiddleware
 
 
 @asynccontextmanager

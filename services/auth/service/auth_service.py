@@ -5,6 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 import jwt
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from auth.core.exceptions import (
     InvalidCredentials,
     TokenExpired,
@@ -22,8 +25,6 @@ from auth.schemas.users_schemas import (
 )
 from auth.service.users_service import UserService
 from auth.settings import settings
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 AUTH_JWT_SECRET: str = settings.AUTH_JWT_SECRET
 ALGORITHM: str = settings.ALGORITHM

@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from ms_events import OutboxMixin, ProcessedEventMixin
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -16,6 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ms_events import OutboxMixin, ProcessedEventMixin
 from notification.core.db import Base
 
 

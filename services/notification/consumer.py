@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+
 from ms_events import (
     EventConsumer,
     EventEnvelope,
@@ -17,7 +18,6 @@ from ms_events import (
     run_consumer,
     setup_logging,
 )
-
 from notification.core.db import SessionLocal
 from notification.service import NotificationService
 from notification.settings import settings

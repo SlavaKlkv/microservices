@@ -2,11 +2,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from ms_events import setup_logging
-from ms_events.middleware import RequestIdMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware import Middleware
 
+from ms_events import setup_logging
+from ms_events.middleware import RequestIdMiddleware
 from orders_history.core.db import db_ping
 from orders_history.core.exceptions import init_exception_handlers
 from orders_history.core.middleware import DBErrorMiddleware

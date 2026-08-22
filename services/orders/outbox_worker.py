@@ -7,7 +7,6 @@
 import asyncio
 
 from ms_events import OutboxWorker, run_worker, setup_logging
-
 from orders.core.db import SessionLocal
 from orders.models import OutboxEvent
 from orders.settings import settings

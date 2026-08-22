@@ -4,6 +4,11 @@ from typing import Any, Iterable, cast
 from uuid import UUID, uuid4
 
 import structlog
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ms_events import (
     EventEnvelope,
     EventType,
@@ -12,11 +17,6 @@ from ms_events import (
     outbox_values,
     utcnow,
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from orders.core.exceptions import (
     IntegrityConflictException,
     OrderNotFoundException,

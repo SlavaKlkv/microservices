@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from orders.core.constants import (
     DEFAULT_LIMIT,
     DEFAULT_OFFSET,
@@ -15,7 +17,6 @@ from orders.schemas import (
     OrderUpdate,
 )
 from orders.service import OrderService
-from sqlalchemy.ext.asyncio import AsyncSession
 
 orders_router = APIRouter(prefix='/orders', tags=['orders'])
 

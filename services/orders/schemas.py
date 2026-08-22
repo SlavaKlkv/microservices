@@ -1,8 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
 
-from orders.models import OrderStatus
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from orders.models import OrderStatus
 
 
 class OrderBase(BaseModel):

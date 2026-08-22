@@ -1,5 +1,14 @@
 from datetime import datetime
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+
 from auth.core.constants import (
     FULL_NAME_MAX_LENGTH,
     FULL_NAME_MIN_LENGTH,
@@ -13,14 +22,6 @@ from auth.core.validators import (
     validate_full_name_value,
     validate_password_value,
     validate_username_value,
-)
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    EmailStr,
-    Field,
-    field_validator,
-    model_validator,
 )
 
 

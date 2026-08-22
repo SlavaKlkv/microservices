@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from ms_events import DBSettings, ServiceSettings
 from pydantic_settings import SettingsConfigDict
+
+from ms_events import DBSettings, ServiceSettings
 
 SERVICE_DIR = Path(__file__).resolve().parent
 

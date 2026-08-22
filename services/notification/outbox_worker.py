@@ -7,7 +7,6 @@
 import asyncio
 
 from ms_events import OutboxWorker, run_worker, setup_logging
-
 from notification.core.db import SessionLocal
 from notification.models import OutboxEvent
 from notification.settings import settings

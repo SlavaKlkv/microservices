@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from orders_history.core.constants import (
     DEFAULT_LIMIT,
     DEFAULT_OFFSET,
@@ -9,7 +11,6 @@ from orders_history.core.constants import (
 from orders_history.core.db import get_session  # type: ignore
 from orders_history.schemas import OrderHistoryList
 from orders_history.service import HistoryService
-from sqlalchemy.ext.asyncio import AsyncSession
 
 orders_history_router = APIRouter(
     prefix='/orders_history', tags=['orders_history']

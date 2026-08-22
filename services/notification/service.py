@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any, cast
 
 import structlog
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ms_events import (
     EventEnvelope,
     EventType,
@@ -10,11 +15,6 @@ from ms_events import (
     Topic,
     outbox_values,
 )
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from notification.mailer import NotificationSendError, send_email
 from notification.models import (
     Notification,
