@@ -38,8 +38,8 @@ async def list_orders_history(
     event_type: str | None = Query(
         default=None,
         description='Фильтр по типу события '
-                    '(order.created, order.confirmed, '
-                    'order.cancelled, order.price_changed)',
+        '(order.created, order.confirmed, '
+        'order.cancelled, order.price_changed)',
     ),
     service: HistoryService = Depends(get_history_service),
 ) -> OrderHistoryList:

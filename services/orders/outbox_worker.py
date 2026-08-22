@@ -1,10 +1,10 @@
 import asyncio
 import json
 import os
-from uuid import uuid4
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 import structlog
 from aiokafka import AIOKafkaProducer
@@ -187,7 +187,9 @@ async def _process_batch(
 
         try:
             payload: dict[str, Any] = ev.payload or {}
-            user_id = payload.get('user_id') if isinstance(payload, dict) else None
+            user_id = (
+                payload.get('user_id') if isinstance(payload, dict) else None
+            )
 
             # event_id обязателен для идемпотентности consumer'а.
             # Для старых строк, где event_id ещё не заполнен, генерируем и сохраняем.
@@ -207,7 +209,9 @@ async def _process_batch(
                 'id': ev.id,
                 'aggregate_id': ev.aggregate_id,
                 'aggregate_type': ev.aggregate_type,
-                'created_at': ev.created_at.isoformat() if ev.created_at else None,
+                'created_at': ev.created_at.isoformat()
+                if ev.created_at
+                else None,
             }
 
             logger.info('Публикуем событие в Kafka', event_value=event_value)

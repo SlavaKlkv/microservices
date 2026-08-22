@@ -1,11 +1,12 @@
 import enum
 from typing import Any
+from uuid import uuid4
 
 from orders.core.constants import (
+    EVENT_ID_LENGTH,
     ORDER_TOTAL_PRICE_MIN,
     ORDER_TOTAL_PRICE_PRECISION,
     ORDER_TOTAL_PRICE_SCALE,
-    EVENT_ID_LENGTH,
 )
 from orders.core.db import Base
 from sqlalchemy import (
@@ -14,16 +15,15 @@ from sqlalchemy import (
     DateTime,
     Integer,
     Numeric,
+    String,
     Text,
     func,
-    String,
 )
 from sqlalchemy import (
     Enum as SAEnum,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from uuid import uuid4
 
 
 class OutboxStatus(str, enum.Enum):
@@ -100,7 +100,7 @@ class OutboxEvent(Base):
         unique=True,
         index=True,
         default=lambda: str(uuid4()),
-        comment='UUID бизнес-события для идемпотентности'
+        comment='UUID бизнес-события для идемпотентности',
     )
 
     aggregate_type: Mapped[str] = mapped_column(
