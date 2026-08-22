@@ -28,4 +28,4 @@ RUN uv sync --frozen --no-dev --package microservices-notification
 
 COPY services/notification ./notification
 
-CMD ["uv", "run", "python", "-m", "notification.main"]
+CMD ["uv", "run", "uvicorn", "notification.main:app", "--host", "0.0.0.0", "--port", "8000"]
