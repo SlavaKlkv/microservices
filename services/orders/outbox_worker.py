@@ -1,208 +1,35 @@
+"""Outbox-воркер сервиса заказов.
+
+Вся логика публикации общая и живёт в ``ms_events.outbox``; здесь только
+привязка к модели и сессиям сервиса.
+"""
+
 import asyncio
-import json
-import signal
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator
 
-import structlog
-from aiokafka import AIOKafkaProducer
-from ms_events import Topic, backoff_seconds
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from ms_events import OutboxWorker, run_worker, setup_logging
 
-from orders.core.db import get_session
-from orders.models import OutboxEvent, OutboxStatus
+from orders.core.db import SessionLocal
+from orders.models import OutboxEvent
 from orders.settings import settings
 
-logger = structlog.get_logger('orders.outbox_worker')
 
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-@asynccontextmanager
-async def _get_async_session() -> AsyncIterator[AsyncSession]:
-    async for session in get_session():
-        yield session
-
-
-def _build_event_value(ev: OutboxEvent) -> dict[str, Any]:
-    """Формирует сообщение для Kafka из строки outbox."""
-    payload: dict[str, Any] = ev.payload or {}
-    return {
-        'event_id': ev.event_id,
-        'event_type': ev.event_type,
-        'order_id': ev.aggregate_id,
-        'user_id': payload.get('user_id'),
-        'payload': payload,
-        # Служебные поля для отладки и трассировки.
-        'id': ev.id,
-        'aggregate_id': ev.aggregate_id,
-        'aggregate_type': ev.aggregate_type,
-        'created_at': ev.created_at.isoformat() if ev.created_at else None,
-    }
-
-
-async def _publish(
-    producer: AIOKafkaProducer,
-    *,
-    topic: str,
-    key: str,
-    value: dict[str, Any],
-) -> None:
-    await producer.send_and_wait(
-        topic,
-        json.dumps(value, ensure_ascii=False).encode('utf-8'),
-        key=key.encode('utf-8'),
+def build_worker() -> OutboxWorker:
+    return OutboxWorker(
+        service='orders',
+        model=OutboxEvent,
+        session_factory=SessionLocal,
+        settings=settings,
     )
-
-
-async def _process_batch(
-    *,
-    session: AsyncSession,
-    producer: AIOKafkaProducer,
-    batch_size: int,
-    topic: str,
-    backoff_base: float,
-    backoff_cap: float,
-) -> None:
-    """Забирает пачку событий (SKIP LOCKED) и публикует их."""
-    now = _utcnow()
-    stmt = (
-        select(OutboxEvent)
-        .where(
-            (OutboxEvent.status == OutboxStatus.NEW)
-            | (
-                (OutboxEvent.status == OutboxStatus.ERROR)
-                & (
-                    (OutboxEvent.next_retry_at.is_(None))
-                    | (OutboxEvent.next_retry_at <= now)
-                )
-            )
-        )
-        .order_by(OutboxEvent.created_at.asc())
-        .with_for_update(skip_locked=True)
-        .limit(batch_size)
-    )
-
-    result = await session.execute(stmt)
-    events = list(result.scalars().all())
-    if not events:
-        return
-
-    logger.info('outbox.batch_taken', count=len(events))
-
-    for ev in events:
-        try:
-            await _publish(
-                producer,
-                topic=topic,
-                key=str(ev.aggregate_id),
-                value=_build_event_value(ev),
-            )
-        except Exception as exc:
-            attempts = int(ev.attempts or 0) + 1
-            delay = backoff_seconds(attempts, backoff_base, backoff_cap)
-
-            ev.status = OutboxStatus.ERROR
-            ev.attempts = attempts
-            ev.last_error = f'{type(exc).__name__}: {exc}'
-            ev.next_retry_at = _utcnow() + timedelta(seconds=max(delay, 0))
-
-            logger.exception(
-                'outbox.publish_failed',
-                outbox_id=ev.id,
-                event_type=ev.event_type,
-                attempts=attempts,
-                retry_in_sec=delay,
-            )
-        else:
-            ev.status = OutboxStatus.SENT
-            ev.sent_at = _utcnow()
-            ev.last_error = None
-            ev.next_retry_at = None
-
-            logger.info(
-                'outbox.published',
-                outbox_id=ev.id,
-                event_id=ev.event_id,
-                event_type=ev.event_type,
-                topic=topic,
-            )
-
-        await session.flush()
-
-    await session.commit()
 
 
 async def run_outbox_loop(stop_event: asyncio.Event | None = None) -> None:
-    """Основной цикл воркера: один продюсер на всё время работы."""
-    stop_event = stop_event or asyncio.Event()
-
-    poll_interval_sec = settings.OUTBOX_POLL_INTERVAL_SEC
-    batch_size = settings.OUTBOX_BATCH_SIZE
-    bootstrap = settings.KAFKA_BOOTSTRAP_SERVERS
-    topic = str(Topic.ORDERS)
-    request_timeout_ms = settings.KAFKA_REQUEST_TIMEOUT_MS
-    backoff_base = settings.OUTBOX_BACKOFF_BASE_SEC
-    backoff_cap = settings.OUTBOX_BACKOFF_CAP_SEC
-
-    producer = AIOKafkaProducer(
-        bootstrap_servers=bootstrap,
-        request_timeout_ms=request_timeout_ms,
-        acks='all',
-        enable_idempotence=True,
-    )
-    await producer.start()
-
-    logger.info(
-        'outbox.worker_started',
-        topic=topic,
-        bootstrap=bootstrap,
-        batch_size=batch_size,
-    )
-
-    try:
-        while not stop_event.is_set():
-            try:
-                async with _get_async_session() as session:
-                    await _process_batch(
-                        session=session,
-                        producer=producer,
-                        batch_size=batch_size,
-                        topic=topic,
-                        backoff_base=backoff_base,
-                        backoff_cap=backoff_cap,
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception('outbox.loop_error')
-
-            try:
-                await asyncio.wait_for(
-                    stop_event.wait(), timeout=poll_interval_sec
-                )
-            except asyncio.TimeoutError:
-                continue
-    finally:
-        await producer.stop()
-        logger.info('outbox.worker_stopped')
-
-
-async def _amain() -> None:
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop_event.set)
-    await run_outbox_loop(stop_event)
+    await build_worker().run(stop_event)
 
 
 def main() -> None:
+    setup_logging('orders-outbox-worker', level=settings.LOG_LEVEL)
     try:
-        asyncio.run(_amain())
+        asyncio.run(run_worker(build_worker()))
     except KeyboardInterrupt:
         pass
 

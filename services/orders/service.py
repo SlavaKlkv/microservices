@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from typing import Any, Iterable
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+import structlog
+from ms_events import (
+    EventEnvelope,
+    EventType,
+    Producer,
+    Topic,
+    outbox_values,
+)
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from orders.core.exceptions import (
     IntegrityConflictException,
@@ -17,8 +28,18 @@ from orders.schemas import (
     OrderStatusRead,
     OrderUpdate,
 )
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from orders.settings import settings
+
+
+def current_correlation_id() -> UUID | None:
+    """X-Request-ID текущего запроса, если он есть в контексте логов."""
+    raw = structlog.contextvars.get_contextvars().get('request_id')
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except ValueError:
+        return None
 
 
 class OrderService:
@@ -42,10 +63,16 @@ class OrderService:
         self,
         *,
         obj: Order,
-        event_type: str,
+        event_type: EventType,
         payload_extra: dict[str, Any] | None = None,
-    ) -> None:
-        """Добавляет событие в outbox в рамках текущей транзакции."""
+        saga_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> EventEnvelope:
+        """Кладёт событие в outbox в рамках текущей транзакции.
+
+        Событие всегда упаковано в версионированный конверт: так все
+        подписчики читают одну и ту же схему сообщения.
+        """
         payload: dict[str, Any] = {
             'order_id': obj.id,
             'user_id': obj.user_id,
@@ -57,14 +84,26 @@ class OrderService:
         if payload_extra:
             payload.update(payload_extra)
 
-        outbox = OutboxEvent(
-            event_id=str(uuid4()),
-            aggregate_type='order',
-            aggregate_id=obj.id,
+        envelope = EventEnvelope(
             event_type=event_type,
+            saga_id=saga_id or uuid4(),
+            correlation_id=current_correlation_id(),
+            causation_id=causation_id,
+            producer=Producer.ORDERS,
+            aggregate_type='order',
+            aggregate_id=str(obj.id),
             payload=payload,
         )
-        self._session.add(outbox)
+        self._session.add(
+            OutboxEvent(
+                **outbox_values(
+                    envelope,
+                    topic=str(Topic.ORDERS),
+                    max_attempts=settings.OUTBOX_MAX_ATTEMPTS,
+                )
+            )
+        )
+        return envelope
 
     async def create(self, payload: OrderCreate, *, user_id: int) -> OrderRead:
         order = Order(
@@ -78,7 +117,18 @@ class OrderService:
                 obj = await self._repo.create(order)
 
                 await self._session.flush()
-                self._add_outbox_event(obj=obj, event_type='order.created')
+
+                # Начало саги: created фиксирует факт, notify_requested
+                # просит сервис уведомлений сделать свою часть работы.
+                created = self._add_outbox_event(
+                    obj=obj, event_type=EventType.ORDER_CREATED
+                )
+                self._add_outbox_event(
+                    obj=obj,
+                    event_type=EventType.ORDER_NOTIFY_REQUESTED,
+                    saga_id=created.saga_id,
+                    causation_id=created.event_id,
+                )
 
         except IntegrityError as exc:
             raise IntegrityConflictException() from exc
@@ -131,7 +181,7 @@ class OrderService:
                     await self._session.flush()
                     self._add_outbox_event(
                         obj=obj,
-                        event_type='order.price_changed',
+                        event_type=EventType.ORDER_PRICE_CHANGED,
                         payload_extra={
                             'old_total_price': str(old_total_price),
                             'new_total_price': str(obj.total_price),
@@ -161,7 +211,9 @@ class OrderService:
             obj = await self._repo.update(obj)
 
             await self._session.flush()
-            self._add_outbox_event(obj=obj, event_type='order.confirmed')
+            self._add_outbox_event(
+                obj=obj, event_type=EventType.ORDER_CONFIRMED
+            )
 
         await self._session.refresh(obj)
         return self._to_status_schema(obj)
@@ -184,7 +236,9 @@ class OrderService:
             obj = await self._repo.update(obj)
 
             await self._session.flush()
-            self._add_outbox_event(obj=obj, event_type='order.cancelled')
+            self._add_outbox_event(
+                obj=obj, event_type=EventType.ORDER_CANCELLED
+            )
 
         await self._session.refresh(obj)
         return self._to_status_schema(obj)

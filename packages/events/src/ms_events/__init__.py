@@ -1,7 +1,15 @@
 """Общий контракт событий микросервисов."""
 
+from ms_events.db import (
+    OutboxMixin,
+    OutboxStatus,
+    ProcessedEventMixin,
+    outbox_values,
+)
 from ms_events.envelope import CURRENT_EVENT_VERSION, EventEnvelope, utcnow
 from ms_events.logging import setup_logging
+from ms_events.outbox import OutboxWorker, run_worker
+from ms_events.producer import EventProducer
 from ms_events.retry import backoff_seconds
 from ms_events.settings import (
     DBSettings,
@@ -16,13 +24,20 @@ __all__ = [
     'TOPIC_BY_PRODUCER',
     'DBSettings',
     'EventEnvelope',
+    'EventProducer',
     'EventType',
     'KafkaSettings',
+    'OutboxMixin',
+    'OutboxStatus',
+    'OutboxWorker',
     'Producer',
+    'ProcessedEventMixin',
     'RedisSettings',
     'ServiceSettings',
     'Topic',
     'backoff_seconds',
+    'outbox_values',
+    'run_worker',
     'setup_logging',
     'utcnow',
 ]
