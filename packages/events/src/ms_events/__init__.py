@@ -12,7 +12,7 @@ from ms_events.idempotency import IdempotencyCache
 from ms_events.logging import setup_logging
 from ms_events.metrics import start_metrics_server
 from ms_events.outbox import OutboxWorker, run_worker
-from ms_events.producer import EventProducer
+from ms_events.producer import EventProducer, RawSender
 from ms_events.retry import backoff_seconds
 from ms_events.settings import (
     DBSettings,
@@ -37,6 +37,7 @@ __all__ = [
     'OutboxWorker',
     'Producer',
     'ProcessedEventMixin',
+    'RawSender',
     'RedisSettings',
     'ServiceSettings',
     'Topic',

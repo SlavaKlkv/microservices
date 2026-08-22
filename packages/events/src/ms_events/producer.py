@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Protocol, Self, runtime_checkable
 
 from aiokafka import AIOKafkaProducer
 
 from ms_events.envelope import EventEnvelope
+
+
+@runtime_checkable
+class RawSender(Protocol):
+    """Всё, что нужно консьюмеру для отправки сообщения в DLQ.
+
+    Узкий протокол вместо конкретного продюсера: консьюмер не должен
+    зависеть от подключения к Kafka, чтобы его можно было проверить.
+    """
+
+    async def send_raw(
+        self, topic: str, value: bytes, *, key: str | None = None
+    ) -> Any: ...
 
 
 class EventProducer:

@@ -28,7 +28,7 @@ from ms_events.metrics import (
     CONSUMER_EVENTS,
     CONSUMER_HANDLER_DURATION,
 )
-from ms_events.producer import EventProducer
+from ms_events.producer import EventProducer, RawSender
 from ms_events.retry import backoff_seconds
 from ms_events.settings import KafkaSettings, RedisSettings
 from ms_events.types import Producer, Topic
@@ -86,7 +86,7 @@ class EventConsumer:
 
     async def _to_dlq(
         self,
-        producer: EventProducer,
+        producer: RawSender,
         *,
         source_topic: str,
         value: bytes,
@@ -117,7 +117,7 @@ class EventConsumer:
 
     async def _handle_with_retries(
         self,
-        producer: EventProducer,
+        producer: RawSender,
         envelope: EventEnvelope,
         *,
         source_topic: str,
@@ -233,7 +233,7 @@ class EventConsumer:
             await consumer.stop()
             logger.info('consumer.stopped', service=self._service)
 
-    async def _process(self, producer: EventProducer, msg: object) -> None:
+    async def _process(self, producer: RawSender, msg: object) -> None:
         raw_value: bytes = getattr(msg, 'value', b'') or b''
         key: bytes | None = getattr(msg, 'key', None)
         source_topic: str = str(getattr(msg, 'topic', ''))

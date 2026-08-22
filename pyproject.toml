@@ -18,6 +18,21 @@ ms-events = { workspace = true }
 dev = [
     "mypy>=1.13.0",
     "ruff>=0.14.9",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.0",
+    "testcontainers[postgres]>=4.9.0",
+    "httpx>=0.28.1",
+]
+
+[tool.pytest.ini_options]
+# Почти все тесты саги асинхронные: ручной маркер на каждом только шумит.
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["services", "packages/events/src"]
+markers = [
+    "integration: нужен живой PostgreSQL (или docker для testcontainers)",
+    "e2e: нужен поднятый docker compose со всей сагой",
+    "service(name): к какой базе сервиса подключается интеграционный тест",
 ]
 
 [tool.ruff]
@@ -38,6 +53,7 @@ known-first-party = [
     "orders",
     "orders_history",
     "notification",
+    "tests",
 ]
 
 [tool.ruff.format]
@@ -57,6 +73,18 @@ strict = true
 
 # mypy 2.x включает strict по умолчанию. Для сервисов держим мягкий режим:
 # они писались без полной аннотации, ужесточаем постепенно.
+# Тесты — не продакшен-код: полная аннотация фикстур и фейков только
+# мешала бы читать сами проверки.
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
+disallow_subclassing_any = false
+warn_return_any = false
+warn_unused_ignores = false
+
 [[tool.mypy.overrides]]
 module = ["auth.*", "orders.*", "orders_history.*", "notification.*"]
 disallow_untyped_defs = false

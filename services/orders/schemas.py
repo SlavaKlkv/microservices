@@ -39,14 +39,14 @@ class OrderUpdate(BaseModel):
 
 
 class OrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
+    status: OrderStatus
     total_price: Decimal
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
     @field_serializer('total_price')
     def serialize_price(self, value: Decimal) -> str:
@@ -54,11 +54,10 @@ class OrderRead(BaseModel):
 
 
 class OrderStatusRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     status: OrderStatus
-
-    class Config:
-        from_attributes = True
 
 
 class OrdersList(BaseModel):

@@ -62,6 +62,14 @@ order.created → order.notify_requested → order.notified          → order.c
   слушают вообще — им поднимается отдельный сервер на `METRICS_PORT`.
   Иначе вся асинхронная половина системы, ровно та, где копятся отказы,
   остаётся невидимой для Prometheus.
+- **Три уровня тестов включаются разными условиями**, и недоступность
+  окружения даёт skip, а не падение: unit работают всегда; integration
+  берут базу из `TEST_POSTGRES_DSN`, иначе поднимают testcontainers,
+  иначе пропускаются; e2e включаются только при заданном `E2E_BASE_URL`.
+  Сломанный код и ненастроенная машина обязаны выглядеть по-разному.
+- **Alembic в тестах запускается подпроцессом**, как job `*-migrate` в
+  compose: `env.py` читает настройки сервиса при импорте, подменить их
+  в уже загруженном процессе нельзя.
 - **`known-first-party` зафиксирован явно** в конфиге ruff: пакеты сервисов
   лежат в `services/<name>`, а импортируются коротким именем, и разные
   версии ruff классифицируют их по-разному.
@@ -86,11 +94,10 @@ order.created → order.notify_requested → order.notified          → order.c
 | `style: pin isort first-party packages` | `known-first-party` в конфиге ruff, порядок импортов приведён к нему во всём репо |
 | `feat(infra): run all workers and notification service in compose` | `postgres-notifications`, notification-service, 5 воркеров и консьюмеров отдельными сервисами, one-shot `*-migrate` и `kafka-init`, mailhog, `/notifications/` в nginx |
 | `feat(observability): fix grafana provisioning and add saga metrics` | datasource-манифест вместо scrape-конфига, монтирование provisioning, метрики outbox/консьюмеров/DLQ/длительности саги, дашборд саги |
+| `test: cover services and saga with pytest` | 92 теста: unit на конверт/DLQ/идемпотентность/метрики, integration на живом Postgres (сага, компенсация, миграции), e2e под маркером |
 
 ## Осталось
 
-12. `test: cover services and saga with pytest` — unit, integration на
-    testcontainers, e2e под маркером `e2e`.
 13. `ci: add github actions pipeline` — lint, typecheck, test, migrations, build, e2e.
 14. `docs: document saga architecture and commands` — полноценный корневой
     README с mermaid-диаграммой саги, README сервисов, `docs/adr/`.
@@ -117,8 +124,10 @@ order.created → order.notify_requested → order.notified          → order.c
 - Redis-путь проверен на живом контейнере: повторный `claim` возвращает
   `False`, после `release` снова `True`, при недоступном Redis консьюмер
   переходит в деградированный режим и продолжает работать через Postgres.
-- Сквозная проверка через настоящую Kafka **не делалась**: все проверки саги
-  шли на уровне сервисов и Postgres. Это остаётся на этап 12.
+- Сквозная проверка через настоящую Kafka **не делалась** и на этапе 12:
+  e2e-тесты написаны, но без docker-демона их не на чем прогнать. Они
+  пропускаются, пока не задан `E2E_BASE_URL`. Всё остальное — 92 теста —
+  проходит, включая сагу и компенсацию на живом PostgreSQL 16.
 - Новый `docker-compose.yml` **не поднимался вживую**: в сессии, где он
   писался, не было docker-демона. Проверено только `docker compose config`
   (25 сервисов рендерятся, якоря и `depends_on` разворачиваются верно) и
@@ -147,8 +156,17 @@ done
 
 uv sync --all-packages
 uv run ruff check services packages && uv run ruff format --check services packages
-uv run mypy packages services
+uv run mypy packages services tests
+
+# unit — всегда; integration — на своей базе или через testcontainers
+uv run pytest tests/unit
+TEST_POSTGRES_DSN=postgresql://postgres:postgres@localhost:5432/postgres \
+  uv run pytest tests
+
 docker compose build && docker compose up -d --wait
+
+# e2e — по поднятому стеку
+E2E_BASE_URL=http://localhost uv run pytest tests/e2e
 ```
 
 Наблюдаемость: Prometheus на `${PROMETHEUS_PORT}` (таргеты — `api` и
