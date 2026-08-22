@@ -11,7 +11,7 @@ def validate_username_value(v: str, pattern: re.Pattern[str]) -> str:
     return normalized
 
 
-def validate_full_name_value(v: str) -> str | None:
+def validate_full_name_value(v: str | None) -> str | None:
     if v is None:
         return v
     if v.strip() == '':

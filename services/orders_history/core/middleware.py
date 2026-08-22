@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import structlog
 from fastapi import status
-from orders_history.core.exceptions import _json_error
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from orders_history.core.exceptions import _json_error
 
 logger = structlog.get_logger(__name__)
 

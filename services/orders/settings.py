@@ -1,48 +1,28 @@
 from pathlib import Path
-from urllib.parse import quote
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from ms_events import DBSettings, KafkaSettings, RedisSettings, ServiceSettings
+from pydantic_settings import SettingsConfigDict
 
 SERVICE_DIR = Path(__file__).resolve().parent
 
 
-class Settings(BaseSettings):
-    DB_HOST: str = 'localhost'
-    DB_PORT: int = 5432
-    DB_USER: str = 'app'
-    DB_PASSWORD: str = 'app'
-    DB_NAME: str = 'orders_db'
-    DB_ECHO: bool = False
-
-    ALGORITHM: str = 'HS256'
-    ACCESS_TTL_MIN: int = 15
-    REFRESH_TTL_DAYS: int = 7
+class Settings(
+    ServiceSettings,
+    DBSettings,
+    KafkaSettings,
+    RedisSettings,
+):
+    """Настройки сервиса заказов."""
 
     model_config = SettingsConfigDict(
         env_file=SERVICE_DIR / '.env', extra='ignore'
     )
 
-    @property
-    def db_connection_url(self) -> str:
-        """Асинхронный URL (используется приложением)."""
-        user = quote(self.DB_USER)
-        password = quote(self.DB_PASSWORD)
-        hostport = (
-            f'{self.DB_HOST}:{self.DB_PORT}' if self.DB_PORT else self.DB_HOST
-        )
-        return (
-            f'postgresql+asyncpg://{user}:{password}@{hostport}/{self.DB_NAME}'
-        )
+    DB_NAME: str = 'orders_db'
+    KAFKA_GROUP_ID: str = 'orders-saga'
 
-    @property
-    def db_connection_url_sync(self) -> str:
-        """Синхронный URL (Alembic / инструменты)."""
-        user = quote(self.DB_USER)
-        password = quote(self.DB_PASSWORD)
-        hostport = (
-            f'{self.DB_HOST}:{self.DB_PORT}' if self.DB_PORT else self.DB_HOST
-        )
-        return f'postgresql://{user}:{password}@{hostport}/{self.DB_NAME}'
+    #: Базовый URL сервиса авторизации для проверки токена.
+    AUTH_SERVICE_URL: str = 'http://127.0.0.1:8000'
 
 
 settings = Settings()

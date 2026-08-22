@@ -1,21 +1,22 @@
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from ms_events import setup_logging
 from ms_events.middleware import RequestIdMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+from starlette.middleware import Middleware
+
 from orders.core.db import db_ping
 from orders.core.exceptions import init_exception_handlers
 from orders.core.middleware import DBErrorMiddleware
 from orders.router import orders_router
-from prometheus_fastapi_instrumentator import Instrumentator
-from starlette.middleware import Middleware
+from orders.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logging('orders', level=os.getenv('LOG_LEVEL', 'INFO'))
+    setup_logging('orders', level=settings.LOG_LEVEL)
     yield
 
 

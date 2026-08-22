@@ -78,8 +78,9 @@ def _parse_message(value: bytes) -> dict[str, Any]:
 
 def _extract_event(data: dict[str, Any]) -> dict[str, Any]:
     """Нормализует событие под единый формат для нотификаций."""
-    payload = (
-        data.get('payload') if isinstance(data.get('payload'), dict) else {}
+    raw_payload = data.get('payload')
+    payload: dict[str, Any] = (
+        raw_payload if isinstance(raw_payload, dict) else {}
     )
 
     event_type = (

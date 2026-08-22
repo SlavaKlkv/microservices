@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +7,8 @@ import httpx
 import structlog
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from orders.settings import settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +26,7 @@ async def get_current_user(
 ) -> CurrentUser:
     token = credentials.credentials
 
-    auth_base = os.getenv('AUTH_SERVICE_URL', 'http://127.0.0.1:8000')
+    auth_base = settings.AUTH_SERVICE_URL
     url = f'{auth_base.rstrip("/")}/api/v1/auth/identity'
 
     timeout = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)

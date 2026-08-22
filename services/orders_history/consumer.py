@@ -2,29 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import signal
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import structlog
 from aiokafka import AIOKafkaConsumer
+from ms_events import Topic
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from orders_history.core.db import get_session
 from orders_history.schemas import HistoryEventIn
 from orders_history.service import HistoryService
-from sqlalchemy.ext.asyncio import AsyncSession
+from orders_history.settings import settings
 
 logger = structlog.get_logger(__name__)
 
 
-def _env(name: str, default: str) -> str:
-    value = os.getenv(name)
-    return value.strip() if value else default
-
-
-KAFKA_BOOTSTRAP_SERVERS = _env('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-KAFKA_TOPIC = _env('KAFKA_TOPIC_ORDER_CREATED', 'OrderCreated')
-KAFKA_GROUP_ID = _env('KAFKA_GROUP_ID', 'orders-history')
+KAFKA_BOOTSTRAP_SERVERS = settings.KAFKA_BOOTSTRAP_SERVERS
+KAFKA_TOPIC = str(Topic.ORDERS)
+KAFKA_GROUP_ID = settings.KAFKA_GROUP_ID
 
 
 @asynccontextmanager
@@ -40,7 +37,7 @@ async def handle_message(session: AsyncSession, raw: dict[str, Any]) -> None:
     event = HistoryEventIn(
         event_id=raw['event_id'],
         order_id=raw['order_id'],
-        user_id=raw.get('user_id'),
+        user_id=int(raw['user_id']),
         event_type=raw['event_type'],
         payload=raw.get('payload', {}),
     )

@@ -35,7 +35,23 @@ indent-style = "space"
 [tool.mypy]
 python_version = "3.13"
 ignore_missing_imports = true
+# Каталоги alembic содержат одноимённые модули env.py в каждом сервисе,
+# для mypy это конфликт имён; сами миграции типизировать смысла нет.
+exclude = ["/alembic/"]
 
 [[tool.mypy.overrides]]
 module = "ms_events.*"
 strict = true
+
+# mypy 2.x включает strict по умолчанию. Для сервисов держим мягкий режим:
+# они писались без полной аннотации, ужесточаем постепенно.
+[[tool.mypy.overrides]]
+module = ["auth.*", "orders.*", "orders_history.*", "notification.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+disallow_any_generics = false
+disallow_subclassing_any = false
+warn_return_any = false
+warn_unused_ignores = false

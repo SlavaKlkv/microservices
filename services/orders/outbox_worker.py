@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import signal
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -8,41 +7,19 @@ from typing import Any, AsyncIterator
 
 import structlog
 from aiokafka import AIOKafkaProducer
-from orders.core.db import get_session
-from orders.models import OutboxEvent, OutboxStatus
+from ms_events import Topic, backoff_seconds
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from orders.core.db import get_session
+from orders.models import OutboxEvent, OutboxStatus
+from orders.settings import settings
 
 logger = structlog.get_logger('orders.outbox_worker')
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _env_int(name: str, default: int) -> int:
-    val = os.getenv(name)
-    return int(val) if val else default
-
-
-def _env_float(name: str, default: float) -> float:
-    val = os.getenv(name)
-    return float(val) if val else default
-
-
-def _env_str(name: str, default: str) -> str:
-    val = os.getenv(name)
-    return val if val else default
-
-
-def _build_backoff_seconds(attempts: int, base: float, cap: float) -> float:
-    """Экспоненциальная задержка с ограничением сверху.
-
-    Формула: base * 2^(attempts - 1), attempts начинается с 1.
-    """
-    if attempts <= 0:
-        return base
-    return min(cap, base * (2 ** (attempts - 1)))
 
 
 @asynccontextmanager
@@ -127,7 +104,7 @@ async def _process_batch(
             )
         except Exception as exc:
             attempts = int(ev.attempts or 0) + 1
-            delay = _build_backoff_seconds(attempts, backoff_base, backoff_cap)
+            delay = backoff_seconds(attempts, backoff_base, backoff_cap)
 
             ev.status = OutboxStatus.ERROR
             ev.attempts = attempts
@@ -164,13 +141,13 @@ async def run_outbox_loop(stop_event: asyncio.Event | None = None) -> None:
     """Основной цикл воркера: один продюсер на всё время работы."""
     stop_event = stop_event or asyncio.Event()
 
-    poll_interval_sec = _env_float('OUTBOX_POLL_INTERVAL_SEC', 1.0)
-    batch_size = _env_int('OUTBOX_BATCH_SIZE', 50)
-    bootstrap = _env_str('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-    topic = _env_str('KAFKA_TOPIC_ORDER_CREATED', 'OrderCreated')
-    request_timeout_ms = _env_int('KAFKA_REQUEST_TIMEOUT_MS', 10_000)
-    backoff_base = _env_float('OUTBOX_BACKOFF_BASE_SEC', 1.0)
-    backoff_cap = _env_float('OUTBOX_BACKOFF_CAP_SEC', 60.0)
+    poll_interval_sec = settings.OUTBOX_POLL_INTERVAL_SEC
+    batch_size = settings.OUTBOX_BATCH_SIZE
+    bootstrap = settings.KAFKA_BOOTSTRAP_SERVERS
+    topic = str(Topic.ORDERS)
+    request_timeout_ms = settings.KAFKA_REQUEST_TIMEOUT_MS
+    backoff_base = settings.OUTBOX_BACKOFF_BASE_SEC
+    backoff_cap = settings.OUTBOX_BACKOFF_CAP_SEC
 
     producer = AIOKafkaProducer(
         bootstrap_servers=bootstrap,

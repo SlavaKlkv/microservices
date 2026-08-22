@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, status
@@ -14,11 +13,12 @@ from auth.core.middleware.exc_middleware import DBErrorMiddleware
 from auth.core.middleware.jwt_middleware import JWTAuthMiddleware
 from auth.routers.auth_router import auth_router
 from auth.routers.users_router import users_router
+from auth.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logging('auth', level=os.getenv('LOG_LEVEL', 'INFO'))
+    setup_logging('auth', level=settings.LOG_LEVEL)
     yield
 
 

@@ -1,48 +1,40 @@
 from pathlib import Path
-from urllib.parse import quote
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from ms_events import DBSettings, KafkaSettings, RedisSettings, ServiceSettings
+from pydantic_settings import SettingsConfigDict
 
 SERVICE_DIR = Path(__file__).resolve().parent
 
 
-class Settings(BaseSettings):
-    DB_HOST: str = 'localhost'
-    DB_PORT: int = 5432
-    DB_USER: str = 'app'
-    DB_PASSWORD: str = 'app'
-    DB_NAME: str = 'notification_db'
-    DB_ECHO: bool = False
-
-    ALGORITHM: str = 'HS256'
-    ACCESS_TTL_MIN: int = 15
-    REFRESH_TTL_DAYS: int = 7
+class Settings(
+    ServiceSettings,
+    DBSettings,
+    KafkaSettings,
+    RedisSettings,
+):
+    """Настройки сервиса уведомлений."""
 
     model_config = SettingsConfigDict(
         env_file=SERVICE_DIR / '.env', extra='ignore'
     )
 
-    @property
-    def db_connection_url(self) -> str:
-        """Асинхронный URL (используется приложением)."""
-        user = quote(self.DB_USER)
-        password = quote(self.DB_PASSWORD)
-        hostport = (
-            f'{self.DB_HOST}:{self.DB_PORT}' if self.DB_PORT else self.DB_HOST
-        )
-        return (
-            f'postgresql+asyncpg://{user}:{password}@{hostport}/{self.DB_NAME}'
-        )
+    DB_NAME: str = 'notification_db'
+    KAFKA_GROUP_ID: str = 'notification'
 
-    @property
-    def db_connection_url_sync(self) -> str:
-        """Синхронный URL (Alembic / инструменты)."""
-        user = quote(self.DB_USER)
-        password = quote(self.DB_PASSWORD)
-        hostport = (
-            f'{self.DB_HOST}:{self.DB_PORT}' if self.DB_PORT else self.DB_HOST
-        )
-        return f'postgresql://{user}:{password}@{hostport}/{self.DB_NAME}'
+    #: Реальная отправка писем выключена по умолчанию: иначе тесты и CI
+    #: будут висеть на недоступном SMTP-хосте.
+    NOTIFICATION_ENABLED: bool = False
+    SMTP_HOST: str = 'localhost'
+    SMTP_PORT: int = 1025
+    SMTP_USER: str = ''
+    SMTP_PASSWORD: str = ''
+    SMTP_FROM: str = 'noreply@example.com'
+    SMTP_USE_TLS: bool = False
+    SMTP_TIMEOUT_SEC: float = 10.0
+
+    #: Доля искусственных отказов отправки (0.0..1.0) — нужна, чтобы
+    #: проверять компенсирующую ветку саги без настоящего SMTP.
+    NOTIFICATION_FAIL_RATE: float = 0.0
 
 
 settings = Settings()
