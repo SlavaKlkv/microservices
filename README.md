@@ -1,10 +1,27 @@
-# Микросервисы заказов: сага-хореография на Kafka
+<div align="center">
 
-Четыре сервиса обмениваются событиями через Kafka и доводят заказ до
-терминального статуса без оркестратора: каждый сервис сам решает, как
-реагировать на чужое событие. Проект собран вокруг трёх вещей, которые
-обычно и ломаются в распределённых системах, — доставки событий,
-идемпотентности и наблюдаемости.
+# Микросервисы заказов
+
+**Сага-хореография на Kafka: четыре сервиса доводят заказ до терминального статуса без оркестратора.**
+
+Каждый сервис сам решает, как реагировать на чужое событие. Проект собран вокруг
+трёх вещей, которые обычно и ломаются в распределённых системах, — доставки
+событий, идемпотентности и наблюдаемости.
+
+[![Python](https://img.shields.io/badge/Python-3.13-6f6ce4?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-6f6ce4?style=flat-square&logo=fastapi&logoColor=white)](services/)
+[![Kafka](https://img.shields.io/badge/Kafka-aiokafka-6f6ce4?style=flat-square&logo=apachekafka&logoColor=white)](packages/events)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-outbox-6f6ce4?style=flat-square&logo=postgresql&logoColor=white)](docs/adr/0002-transactional-outbox.md)
+[![Redis](https://img.shields.io/badge/Redis-idempotency-6f6ce4?style=flat-square&logo=redis&logoColor=white)](docs/adr/0003-idempotency.md)
+[![CI](https://img.shields.io/github/actions/workflow/status/SlavaKlkv/microservices/ci.yml?style=flat-square&label=CI&color=6f6ce4)](../../actions)
+
+[Сага](#сага) ·
+[Как это устроено](#как-это-устроено) ·
+[Запуск](#запуск) ·
+[Наблюдаемость](#наблюдаемость) ·
+[Ограничения](#известные-ограничения)
+
+</div>
 
 ## Сага
 
