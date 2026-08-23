@@ -63,6 +63,7 @@ order.created → order.notify_requested → order.notified            → order
 | DLQ и ограниченные повторы | «отравленная таблетка» не должна намертво занимать партицию | [ADR-0004](docs/adr/0004-dlq-and-retries.md) |
 | Общий пакет `ms-events` в uv workspace | контракт событий один на всех, а не скопирован четырежды | [ADR-0005](docs/adr/0005-shared-events-package.md) |
 | Миграции — отдельные one-shot job'ы | несколько процессов на одну БД дерутся за `alembic_version` | [ADR-0006](docs/adr/0006-migrations-as-jobs.md) |
+| Retention в outbox-воркере | обе служебные таблицы растут на каждое событие саги | [ниже](#уборка) |
 
 Ключ партиционирования — `order_id`: события одного заказа всегда
 попадают в одну партицию и сохраняют порядок. `orders` не подписан на
@@ -170,6 +171,21 @@ E2E_BASE_URL=http://localhost uv run pytest tests/e2e
 PYTHONPATH=services uv run alembic -c services/orders/alembic.ini upgrade head
 ```
 
+## Уборка
+
+`outbox` и `processed_event` пополняются на каждое событие саги, поэтому
+раз в `OUTBOX_CLEANUP_INTERVAL_SEC` (по умолчанию час) outbox-воркер
+удаляет то, что уже сделало свою работу:
+
+| Что удаляется | Через сколько | Почему можно |
+|---|---|---|
+| строки `outbox` в статусе `SENT` | `OUTBOX_RETENTION_DAYS`, по умолчанию 7 | событие уже в брокере, строка — только след публикации |
+| отметки в `processed_event` | `PROCESSED_EVENT_RETENTION_DAYS`, по умолчанию 30 | повтор доставки через месяц после события практически невозможен |
+
+Не удаляется ничего, что ещё нужно: строки `NEW` и `ERROR` ждут отправки,
+а `DEAD` — единственный след события, ушедшего в DLQ, и разбирают его
+руками. Ноль в любой из переменных отключает соответствующую уборку.
+
 ## Наблюдаемость
 
 API-сервисы отдают `/metrics` сами, воркерам и консьюмерам поднимается
@@ -182,6 +198,7 @@ API-сервисы отдают `/metrics` сами, воркерам и кон�
 | `outbox_events_dead_total` | попытки исчерпаны, событие в DLQ |
 | `consumer_events_total{outcome}` | processed / duplicate / failed / invalid |
 | `consumer_dlq_total` | **в норме ноль** — единственная метрика под алерт |
+| `outbox_rows_pruned_total` | сколько строк забрала уборка (`table`: outbox / processed_event) |
 | `saga_duration_seconds` | сколько живёт сага до терминального статуса |
 
 Дашборд «Microservices Saga Overview» появляется в Grafana сам через
@@ -191,10 +208,6 @@ API-сервисы отдают `/metrics` сами, воркерам и кон�
 
 Честный список того, что осознанно не сделано или сделано с оговоркой.
 
-* **Таблицы `outbox` и `processed_event` не чистятся.** Отправленные
-  строки и отметки об обработанных событиях копятся без ограничения.
-  Для демонстрационного объёма это неважно, для эксплуатации нужен
-  retention.
 * **Разбор DLQ — ручная работа.** Никакой автоматики переигрывания нет.
   Поэтому `consumer_dlq_total` и `outbox_events_dead_total` — метрики
   под алерт: в норме там ноль.
