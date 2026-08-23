@@ -51,6 +51,12 @@ OUTBOX_BATCH = Gauge(
     ['service'],
 )
 
+OUTBOX_PRUNED = Counter(
+    'outbox_rows_pruned_total',
+    'Строк удалено уборкой: отправленный outbox и журнал обработанных',
+    ['service', 'table'],
+)
+
 CONSUMER_EVENTS = Counter(
     'consumer_events_total',
     'События, прошедшие через консьюмер',

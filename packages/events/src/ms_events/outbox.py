@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ms_events.db import OutboxStatus
@@ -21,6 +21,7 @@ from ms_events.metrics import (
     OUTBOX_BATCH,
     OUTBOX_DEAD,
     OUTBOX_FAILED,
+    OUTBOX_PRUNED,
     OUTBOX_PUBLISHED,
 )
 from ms_events.producer import EventProducer
@@ -45,9 +46,11 @@ class OutboxWorker:
         model: type[Any],
         session_factory: async_sessionmaker[AsyncSession],
         settings: KafkaSettings,
+        processed_model: type[Any] | None = None,
     ) -> None:
         self._service = service
         self._model = model
+        self._processed_model = processed_model
         self._session_factory = session_factory
         self._settings = settings
 
@@ -165,6 +168,69 @@ class OutboxWorker:
         await session.commit()
         return len(rows)
 
+    async def _prune(
+        self,
+        session: AsyncSession,
+        model: type[Any],
+        column: Any,
+        days: int,
+        *,
+        table: str,
+        extra_where: Any = None,
+    ) -> int:
+        """Удаляет строки старше ``days`` и возвращает их число."""
+        if days <= 0:
+            return 0
+
+        stmt = delete(model).where(column < utcnow() - timedelta(days=days))
+        if extra_where is not None:
+            stmt = stmt.where(extra_where)
+
+        result = await session.execute(stmt)
+        deleted = int(getattr(result, 'rowcount', 0) or 0)
+
+        if deleted:
+            OUTBOX_PRUNED.labels(service=self._service, table=table).inc(
+                deleted
+            )
+            logger.info(
+                'outbox.pruned', table=table, deleted=deleted, older_than=days
+            )
+        return deleted
+
+    async def cleanup(self, session: AsyncSession) -> int:
+        """Убирает то, что уже сделало свою работу.
+
+        Отправленные строки outbox — след публикации, отметки в
+        ``processed_event`` — защита от повторной доставки. И то, и другое
+        нужно ограниченное время; без уборки обе таблицы растут вечно.
+
+        Строки в статусе ``DEAD`` не трогаются: это единственный след
+        события, ушедшего в DLQ, и разбирают его руками.
+        """
+        model = self._model
+        deleted = await self._prune(
+            session,
+            model,
+            model.sent_at,
+            self._settings.OUTBOX_RETENTION_DAYS,
+            table='outbox',
+            extra_where=model.status == OutboxStatus.SENT,
+        )
+
+        if self._processed_model is not None:
+            processed = self._processed_model
+            deleted += await self._prune(
+                session,
+                processed,
+                processed.processed_at,
+                self._settings.PROCESSED_EVENT_RETENTION_DAYS,
+                table='processed_event',
+            )
+
+        await session.commit()
+        return deleted
+
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
         """Основной цикл: один продюсер на всё время жизни воркера."""
         stop_event = stop_event or asyncio.Event()
@@ -183,11 +249,23 @@ class OutboxWorker:
             batch_size=settings.OUTBOX_BATCH_SIZE,
         )
 
+        # первая уборка — не на старте: воркер должен сначала начать
+        # публиковать, а не разгребать историю
+        next_cleanup = utcnow() + timedelta(
+            seconds=settings.OUTBOX_CLEANUP_INTERVAL_SEC
+        )
+
         try:
             while not stop_event.is_set():
                 try:
                     async with self._session_factory() as session:
                         await self._process_batch(session, producer)
+
+                        if utcnow() >= next_cleanup:
+                            await self.cleanup(session)
+                            next_cleanup = utcnow() + timedelta(
+                                seconds=settings.OUTBOX_CLEANUP_INTERVAL_SEC
+                            )
                 except asyncio.CancelledError:
                     raise
                 except Exception:

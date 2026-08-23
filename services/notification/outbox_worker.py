@@ -13,7 +13,7 @@ from ms_events import (
     start_metrics_server,
 )
 from notification.core.db import SessionLocal
-from notification.models import OutboxEvent
+from notification.models import OutboxEvent, ProcessedEvent
 from notification.settings import settings
 
 
@@ -21,6 +21,7 @@ def build_worker() -> OutboxWorker:
     return OutboxWorker(
         service='notification',
         model=OutboxEvent,
+        processed_model=ProcessedEvent,
         session_factory=SessionLocal,
         settings=settings,
     )
