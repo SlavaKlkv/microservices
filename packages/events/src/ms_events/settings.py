@@ -69,6 +69,15 @@ class KafkaSettings(BaseSettings):
     #: После стольких неудачных попыток строка уходит в статус DEAD и DLQ.
     OUTBOX_MAX_ATTEMPTS: int = 10
 
+    #: Retention. Отправленные строки outbox и отметки об обработанных
+    #: событиях нужны недолго: первые — как след публикации, вторые — пока
+    #: возможен повтор доставки. Держать их вечно значит растить таблицы
+    #: без ограничения. 0 отключает уборку.
+    OUTBOX_RETENTION_DAYS: int = 7
+    PROCESSED_EVENT_RETENTION_DAYS: int = 30
+    #: Как часто воркер занимается уборкой.
+    OUTBOX_CLEANUP_INTERVAL_SEC: float = 3600.0
+
     #: Консьюмеры.
     CONSUMER_MAX_ATTEMPTS: int = 5
     CONSUMER_BACKOFF_BASE_SEC: float = 0.5

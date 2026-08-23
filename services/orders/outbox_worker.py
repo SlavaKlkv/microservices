@@ -13,7 +13,7 @@ from ms_events import (
     start_metrics_server,
 )
 from orders.core.db import SessionLocal
-from orders.models import OutboxEvent
+from orders.models import OutboxEvent, ProcessedEvent
 from orders.settings import settings
 
 
@@ -21,6 +21,7 @@ def build_worker() -> OutboxWorker:
     return OutboxWorker(
         service='orders',
         model=OutboxEvent,
+        processed_model=ProcessedEvent,
         session_factory=SessionLocal,
         settings=settings,
     )
